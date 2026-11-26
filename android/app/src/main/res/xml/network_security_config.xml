@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The PC is reached by its local Wi-Fi address over plain HTTP. Android cannot allow "private addresses only",
+     so plain HTTP is allowed; the app itself only ever talks to the PC address the user typed. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

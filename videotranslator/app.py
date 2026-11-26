@@ -277,7 +277,8 @@ class MainWindow(QMainWindow):
 
     def update_model_status(self):
         names=getattr(self,'_model_names',None)
-        text=('Ollama unavailable · start it, then refresh' if names is None else
+        self.ollama_setup.setVisible(names is None or self.model.currentText() not in names)
+        text=('Ollama unavailable · press Set up translation, then Refresh' if names is None else
               f'Ollama running · {self.model.currentText()} '+('installed' if self.model.currentText() in names else 'not installed locally'))
         self.model_status.setText(text)
 
@@ -834,6 +835,13 @@ class MainWindow(QMainWindow):
                 obj=json.loads(line);self.job_progress(round(obj['progress']),obj['message']);self.status.setText(obj['message'])
             except (ValueError,KeyError):pass
             self.log.appendPlainText(line)
+    def setup_ollama(self):
+        """Installs Ollama, starts it and downloads the chosen model, in a console window so the long download shows its progress."""
+        import re,subprocess
+        model=self.model.currentText().strip() or 'gemma4:12b'
+        if not re.fullmatch(r'[\w.:/-]+',model):self.status.setText('That model name is not valid. Pick or type a name such as gemma4:12b.');return
+        subprocess.Popen(['cmd','/c','powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'install.ps1'),'-OllamaOnly','-Model',model,'&','pause'],creationflags=subprocess.CREATE_NEW_CONSOLE)
+        self.status.setText('Setting up translation in a separate window. When it says it is ready, press Refresh.')
     def refresh_models(self,quiet=False):
         current=self.model.currentText().strip()
         try:names=installed_models()
@@ -932,12 +940,22 @@ class MainWindow(QMainWindow):
             latest=self.p.get('last_export') if self.p else None
             folder=Path(latest).parent if latest and Path(latest).is_file() else ROOT/'exports'
             folder.mkdir(parents=True,exist_ok=True);os.startfile(str(folder))
+    def phone_mode(self):
+        # The server starts on first use and stays on until the app closes, so the phone keeps working with this window hidden.
+        try:
+            if not getattr(self,'phone',None):
+                from .phone_server import PhoneServer
+                self.phone=PhoneServer().start()
+            from .phone_dialog import PhoneDialog
+            PhoneDialog(self.phone,self).exec()
+        except OSError as exc:self.error(f'Phone mode could not start: {exc}')
     def closeEvent(self,event):
         if self.proc and self.proc.state()!=QProcess.ProcessState.NotRunning:
             self.cancel_job();self.status.setText('Cancelling. Close again after the worker stops.');event.ignore();return
         if self.p:
             try:self.collect();save_project(self.p,self.path)
             except Exception:pass
+        if getattr(self,'phone',None):self.phone.stop();self.phone=None
         event.accept()
 
 def create_application(argv):

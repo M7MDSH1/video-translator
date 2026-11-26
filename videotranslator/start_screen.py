@@ -75,6 +75,7 @@ class StartScreen(QWidget):
         rl.addWidget(self.list,1)
         row=QHBoxLayout();self.open_button=button('Open selected',lambda:self.open_item(self.list.currentItem()));self.open_button.setEnabled(False)
         row.addWidget(self.open_button);row.addWidget(button('Browse for a project…',window.open_project));rl.addLayout(row)
+        phone=button('Translate from your phone…',window.phone_mode);phone.setToolTip('Send a video from the Android app over Wi-Fi and get the translated video back.');rl.addWidget(phone)
         cl.addWidget(recent,1)
         cards.setMaximumWidth(1100);cards.setMinimumHeight(420);outer.addWidget(cards,0,Qt.AlignmentFlag.AlignHCenter)
         cards.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Preferred)

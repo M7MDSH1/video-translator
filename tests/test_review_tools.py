@@ -10,6 +10,8 @@ class OllamaErrorTests(unittest.TestCase):
         from videotranslator.engine import ollama_error
         text=ollama_error('gemma4:12b','{"error":"llama runner process has terminated: failed to allocate CUDA_Host buffer"}')
         self.assertIn('Not enough free graphics or system memory',text);self.assertIn('Close other AI apps',text)
+        self.assertIn('Not enough free',ollama_error('x','{"error":"llama-server reported out-of-memory during startup"}'))  # hyphenated wording
+        self.assertNotIn('Not enough free',ollama_error('x','{"error":"bad room name"}'))  # 'oom' only as a whole word
         self.assertEqual(ollama_error('x','{"error":"token repeat limit reached"}'),'Ollama could not run x: token repeat limit reached')
         self.assertEqual(ollama_error('x','<html>bad gateway'),'Ollama could not run x: <html>bad gateway')
 

@@ -20,23 +20,13 @@ With 12–16 GB of VRAM the default `gemma4:12b` translation model (about 8 GB) 
 
 Tested on: Intel i7-13700KF, 16 GB RAM, NVIDIA RTX 5070 Ti 16 GB, Windows 11. The other rows are estimates from the requirements of PyTorch, faster-whisper and Ollama, not tested hardware.
 
-1. Install the prerequisites (skip any you already have):
+1. Download the app: on its GitHub page choose **Code → Download ZIP** and unzip it anywhere (or `git clone https://github.com/M7MDSH1/video-translator.git`).
 
-   ```powershell
-   winget install Python.Python.3.12
-   winget install Ollama.Ollama
-   winget install Git.Git
-   ```
+2. Double-click **Install.bat** in the app's folder and wait. Nothing needs to be installed beforehand.
 
-2. Download the app and run the installer from its folder:
+   The installer adds whatever is missing with winget: Python 3.12, FFmpeg, and Ollama (the program that runs the translation model on your PC). It then creates a private Python environment in `.venv`, installs the packages (PyTorch alone is about 3 GB), downloads the offline Whisper Turbo and EasyOCR models into `models\`, starts Ollama, downloads the `gemma4:12b` translation model (about 8 GB), and creates a **Video Translator** shortcut. Expect roughly 15 GB of downloads in total.
 
-   ```powershell
-   git clone https://github.com/M7MDSH1/video-translator.git
-   cd video-translator
-   powershell -ExecutionPolicy Bypass -File .\install.ps1
-   ```
-
-   The installer creates a private Python environment in `.venv`, installs the packages (PyTorch alone is about 3 GB), installs FFmpeg with winget if it is missing, downloads the offline Whisper Turbo and EasyOCR models into `models\`, pulls the `gemma4:12b` translation model with Ollama (about 8 GB), and creates a **Video Translator** shortcut.
+   Options go after the file name in a terminal, for example `.\Install.bat -Cpu`:
 
    | Option | Use it when |
    |---|---|
@@ -44,8 +34,9 @@ Tested on: Intel i7-13700KF, 16 GB RAM, NVIDIA RTX 5070 Ti 16 GB, Windows 11. Th
    | `-Model qwen3.5:9b` | you want a different Ollama model; any installed one can also be picked in the app later |
    | `-SkipModels` | you will download models yourself later (`.venv\Scripts\python setup_models.py`) |
    | `-CheckOnly` | you only want a report of what is installed or missing |
+   | `-OllamaOnly` | you only want to install or start Ollama and download the translation model |
 
-3. Start **Video Translator.lnk** (or **Start Video Translator.bat**). Ollama must be running; it starts automatically after installation on most PCs.
+3. Start **Video Translator.lnk** (or **Start Video Translator.bat**). If Ollama is not running or the chosen model is not installed, Setup shows a **Set up translation (Ollama)…** button that installs, starts and downloads what is missing.
 
 If FFmpeg was just installed, open a new terminal or sign out and back in first so Windows finds it. You can also place `ffmpeg.exe` and `ffprobe.exe` (a build with libass, such as the gyan.dev full build) in `runtime\ffmpeg\bin`; the app uses that folder first.
 
@@ -86,6 +77,24 @@ Choose **YouTube captions** on the start screen (or as the appearance in Export)
 - Upload it in YouTube Studio: **Subtitles** › your video › **Add language** › **Add** under subtitles › **Upload file** › **With timing**, then publish. YouTube's menus can change; the Export page shows these steps too.
 - Timing is the same readable timing as Review: short lines stay up long enough to read. Text style settings do not apply; YouTube uses its own caption style. Arabic, Persian, Urdu and Hebrew lines start with an invisible right-to-left mark so lines beginning with "..." or a number stay right-aligned. How YouTube draws them has not been tested from this app.
 - Best with **Spoken dialogue**. If the video has subtitles burned into the picture, they stay visible and YouTube's captions appear on top of them.
+
+## Translate from your phone
+
+The Android app in `android/` sends a video to this PC over Wi-Fi, the PC translates it, and the phone downloads the result. The phone does none of the AI work, so the quality is the same as on the desktop.
+
+1. On the PC, open Video Translator and choose **Translate from your phone...** on the start screen. It shows a PC address and a six-digit code. If Windows asks, allow access on private networks.
+2. Install the app on the phone. Build it with `gradlew assembleDebug` in `android/` (needs the Android SDK and JDK 21); the APK is written to `android/app/build/outputs/apk/debug/`.
+3. In the app, type the address and the code once. Choose a video, or share one to the app from the gallery, say whether the dialogue is spoken or shown on screen, and press **Translate**.
+4. The translated video is saved on the phone in `Movies/Video Translator`.
+
+What to expect:
+
+- **Same Wi-Fi only.** The phone and the PC must be on the same network, and the PC must stay on with Video Translator open.
+- **No review step.** The video is translated and exported without anyone checking the lines. The project is kept on the PC in `projects/phone-<date>`, so you can open it there, fix lines, and export again.
+- **Phone-sized result.** The export is a 720p MP4 of at most about 1.4 GB per hour, not the full-size file the desktop makes.
+- **Subtitles are added, not replaced.** Replacing burned-in subtitles needs a region set by hand, so it is desktop only.
+- **Arabic only for now.** The app does not offer a target language choice.
+- **Plain HTTP on your own network.** The six-digit code keeps other devices on the Wi-Fi from using the PC, but the video is not encrypted in transit. Do not use it on public Wi-Fi.
 
 ## Review shortcuts, faster export, and model comparison
 

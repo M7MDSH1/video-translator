@@ -107,6 +107,21 @@ class WorkspaceTests(unittest.TestCase):
         with patch('videotranslator.app.installed_models',side_effect=ConnectionError):self.w.refresh_models(quiet=True)
         self.assertIn('unavailable',self.w.model_status.text());self.assertEqual(self.w.p,before)
 
+    def test_setup_translation_button_shows_only_when_ollama_or_the_model_is_missing(self):
+        with patch('videotranslator.app.installed_models',side_effect=ConnectionError):self.w.refresh_models(quiet=True)
+        self.assertFalse(self.w.ollama_setup.isHidden())
+        with patch('videotranslator.app.installed_models',return_value=['other:1b']):self.w.refresh_models(quiet=True)
+        self.w.model.setCurrentText('gemma4:12b');self.w.update_model_status();self.assertFalse(self.w.ollama_setup.isHidden())
+        self.w.model.setCurrentText('other:1b');self.w.update_model_status();self.assertTrue(self.w.ollama_setup.isHidden())
+
+    def test_setup_translation_runs_the_installer_for_the_chosen_model_and_refuses_odd_names(self):
+        self.w.model.setCurrentText('gemma4:12b')
+        with patch('subprocess.Popen') as run:self.w.setup_ollama()
+        command=run.call_args[0][0];self.assertIn('-OllamaOnly',command);self.assertEqual(command[command.index('-Model')+1],'gemma4:12b')
+        self.w.model.setCurrentText('x & calc')
+        with patch('subprocess.Popen') as run:self.w.setup_ollama()
+        run.assert_not_called();self.assertIn('not valid',self.w.status.text())
+
     def test_export_destination_display_creates_no_folder(self):
         root=Path(self.temp.name)/'exports';predicted=next_export(root,self.w.p)
         self.assertFalse(root.exists());self.assertEqual(reserve_export(root,self.w.p),predicted)

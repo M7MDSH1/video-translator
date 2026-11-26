@@ -24,13 +24,16 @@ class Cancelled(Exception): pass
 
 NVENC=['-c:v','h264_nvenc','-preset','p3','-rc','vbr','-cq','26','-b:v','0','-pix_fmt','yuv420p']
 X264=['-c:v','libx264','-preset','fast','-crf','22']
+# Phone mode: a 720p MP4 small enough to send back over Wi-Fi and playable in any gallery app.
+PHONE_SIDE=720
+PHONE_RATE=['-maxrate','3M','-bufsize','6M']  # about 1.4 GB per hour at most
 
 def ollama_error(model,body):
     """Ollama's reply to a failed request, with the usual cause named when it is a memory failure."""
     try:detail=json.loads(body).get('error',body)
     except ValueError:detail=body
     detail=str(detail).strip()[:300]
-    if re.search(r'allocate|out of memory|oom|cuda|vram|requires more system memory|memory layout',detail,re.I):
+    if re.search(r'allocate|out[ -]of[ -]memory|\boom\b|cuda|vram|requires more system memory|memory layout',detail,re.I):
         return (f'Not enough free graphics or system memory to load {model}. Close other AI apps that are using the graphics card '
                 f'(for example another model server), or choose a smaller model in Setup, then press Resume. Ollama said: {detail}')
     return f'Ollama could not run {model}: {detail}'
@@ -406,10 +409,11 @@ class Worker:
         srt.write_text(make_srt(p,rtl_marks=p['target'] in RTL_LANGUAGES,speaker_names=False),encoding='utf-8')
         p['last_export']=str(srt);self.save()
         save_project(p,prefix.parent/(prefix.name+'.project.json'));report(100,f'YouTube captions saved: {srt}')
-    def render(self,preview=False,start=None,length=12):
+    def render(self,preview=False,start=None,length=12,phone=False):
         p=self.p; validate(p,render=True)
         if p['appearance']=='youtube' and not preview:return self.youtube_captions()
-        if not preview and not approved(p):raise ValueError('Generate a preview and approve it before exporting. Edits invalidate approval.')
+        # Phone mode is unattended by design: nobody is at the PC to approve a preview.
+        if not preview and not phone and not approved(p):raise ValueError('Generate a preview and approve it before exporting. Edits invalidate approval.')
         self.check()
         if preview:
             stamp=time.strftime('%Y%m%d-%H%M%S')+'-'+str(time.time_ns()%1000000)
@@ -430,7 +434,7 @@ class Worker:
             save_project(p,prefix.with_suffix('.project.json')); report(100,f'Subtitles exported: {srt}');return
         audio_codecs=[s.get('codec_name') for s in p['media'].get('streams',[]) if s.get('codec_type')=='audio']
         preview_mp4=all(c in ('aac','mp3','ac3','eac3','alac') for c in audio_codecs)
-        video=prefix.with_suffix('.mp4' if preview and preview_mp4 else '.mkv')
+        video=prefix.with_suffix('.mp4' if phone or (preview and preview_mp4) else '.mkv')
         partial=video.with_name(video.stem+'.partial'+video.suffix)
         original_tracks=[s for s in p['media'].get('streams',[]) if s.get('codec_type')=='subtitle']
         track=int(p.get('subtitle_track',0))
@@ -458,15 +462,19 @@ class Worker:
         if bitmap and preview:filters.append(f'setpts=PTS-{start}/TB')
         filters.append('ass=filename=render.ass:fontsdir=fonts')
         if bitmap and preview:filters.append(f'setpts=PTS+{start}/TB')
+        # The short side becomes 720, so portrait phone videos keep their detail (frames are already rotated upright here).
+        if phone and min(p['media']['width'],p['media']['height'])>PHONE_SIDE:filters.append(f"scale='if(gt(iw,ih),-2,{PHONE_SIDE})':'if(gt(iw,ih),{PHONE_SIDE},-2)'")
         if bitmap:args+=['-filter_complex',','.join(filters)+'[out]','-map','[out]']
         else:args+=['-map','0:v:0','-vf',','.join(filters)]
-        tail=['-c:a','copy','-map_metadata','0','-progress','pipe:1',str(partial)];label='Rendering preview' if preview else 'Exporting video'
+        audio=['-c:a','aac','-b:a','160k','-movflags','+faststart'] if phone else ['-c:a','copy']
+        tail=audio+['-map_metadata','0','-progress','pipe:1',str(partial)];label='Rendering preview' if preview else 'Exporting video'
         # NVIDIA encoder first: about 3x faster than libx264 at the same quality (files ~40 % larger). Any failure
         # (no NVIDIA card, old driver, frame wider than 4096) falls back to the CPU encoder.
-        try:self.command(args+NVENC+tail,duration,label)
+        rate=PHONE_RATE if phone else []
+        try:self.command(args+NVENC+rate+tail,duration,label)
         except RuntimeError as e:
             if 'nvenc' not in str(e).lower():raise  # an unrelated failure (disk full, bad source) must not restart the job
-            self.command(args+X264+tail,duration,label)
+            self.command(args+X264+rate+tail,duration,label)
         partial.replace(video)
         if preview:
             p['preview']={'path':str(video),'fingerprint':fingerprint(p),'start':start,'duration':duration}
@@ -483,7 +491,7 @@ def probe(path):
 
 def main():
     sys.stdout.reconfigure(encoding='utf-8'); sys.stderr.reconfigure(encoding='utf-8')
-    parser=argparse.ArgumentParser(); parser.add_argument('action',choices=['process','recognize','translate','covers','preview','export']); parser.add_argument('project'); parser.add_argument('--start',type=float);parser.add_argument('--length',type=float,default=12)
+    parser=argparse.ArgumentParser(); parser.add_argument('action',choices=['process','recognize','translate','covers','preview','export','phone']); parser.add_argument('project'); parser.add_argument('--start',type=float);parser.add_argument('--length',type=float,default=12)
     args=parser.parse_args()
     try:
         worker=Worker(args.project)
@@ -491,6 +499,10 @@ def main():
         elif args.action=='recognize':worker.recognize()
         elif args.action=='translate':worker.translate()
         elif args.action=='covers':worker.covers()
+        elif args.action=='phone':
+            # One unattended run for the phone app; the stage lines drive its progress steps.
+            for stage,step in (('recognize',worker.recognize),('translate',worker.translate),('export',lambda:worker.render(phone=True))):
+                print(json.dumps({'stage':stage}),flush=True);step()
         else:worker.render(preview=args.action=='preview',start=args.start,length=args.length)
     except Cancelled as exc:
         worker.save();report(0,str(exc));sys.exit(2)

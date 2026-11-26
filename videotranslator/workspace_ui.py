@@ -159,6 +159,7 @@ def build_setup(w):
     w.model=QComboBox();w.model.setEditable(True);w.model.setCurrentText('gemma4:12b')
     row=QHBoxLayout();row.addWidget(w.model,1);row.addWidget(button('Refresh',w.refresh_models));form.addRow('Translation model',row)
     w.model_status=label('Ollama connection not checked','muted');layout.addWidget(w.model_status)
+    w.ollama_setup=button('Set up translation (Ollama)…',w.setup_ollama);w.ollama_setup.hide();layout.addWidget(w.ollama_setup)
     layout.addWidget(label('Changing model or target language retranslates unreviewed lines. Reviewed translations are retained.','muted'))
     layout.addWidget(button('Edit names / terminology',w.edit_glossary))
     layout.addWidget(button('Compare models…',w.compare_models))
