@@ -1,0 +1,37 @@
+.venv/
+runtime/
+models/
+projects/
+artifacts/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.log
+/*.png
+/*.mp4
+/verification-export.json
+/khaam-preflight.json
+/manifest.json
+tools/khaam/
+tests/fixtures/
+
+# Your videos, projects and exports stay on your PC
+exports/
+*.lnk
+# Scratch and review leftovers
+design/skill-review/
+design/proposal/
+tools/__pycache__/
+# One-off scripts tied to a single local project
+tools/check_workspace.py
+tools/compare_fixed_v2.py
+tools/compare_translation_versions.py
+tools/dialogue_only_preview.py
+tools/export_approved_full_video.py
+tools/finish_export_comparison.py
+tools/finish_fixed_text.py
+tools/finish_full_video_check.py
+tools/prepare_fixed_v2.py
+tools/recover_dialogue_lines.py
+tools/render_fixed_v2.py
+tools/verify_fixed_layouts.py

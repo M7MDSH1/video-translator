@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><rect x="8" y="8" width="240" height="240" rx="52" fill="#151B24"/><rect x="10" y="10" width="236" height="236" rx="50" fill="none" stroke="#354153" stroke-width="4"/>
+  <rect x="34" y="46" width="188" height="132" rx="18" fill="none" stroke="#EDF2FA" stroke-width="12"/>
+  <path d="M110 76 Q105 73 105 79 V125 Q105 131 110 128 L148 105 Q153 102 148 99Z" fill="#EDF2FA"/>
+  <rect x="62" y="160" width="132" height="64" rx="32" fill="#57D6B5"/>
+  <rect x="62" y="160" width="132" height="64" rx="32" fill="none" stroke="#151B24" stroke-width="6"/>
+  <text x="128" y="209" font-family="Segoe UI" font-weight="700" font-size="64" text-anchor="middle" fill="#151B24">عـ</text>
+</svg>

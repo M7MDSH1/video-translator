@@ -1,0 +1,541 @@
+<title>Video Translator Motion</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: the real app window on the left, a guide of the ten motions on the right; stacks on phones.
+   Single dark look on purpose: it mirrors the desktop app's own palette. */
+:root{
+  --bg:#0F141B; --win:#151B24; --card:#1D2632; --field:#121923; --line:#354153; --line-soft:#293544;
+  --fg:#EDF2FA; --muted:#B0BDCE; --dim:#82909F; --teal:#57D6B5; --teal-deep:#203E3C; --teal-press:#45B89A; --red:#FF8A80;
+  --ui:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  --ar:"Segoe UI","Noto Naskh Arabic",Tahoma,sans-serif;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-spring:cubic-bezier(.34,1.56,.64,1);
+  --t-press:120ms; --t-hover:150ms; --t-panel:220ms; --t-toast:260ms;
+  color-scheme:dark;
+}
+body{background:var(--bg);color:var(--fg);font:13px/1.45 var(--ui);padding-block:20px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.page{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:20px;max-width:1500px;margin:0 auto;align-items:start}
+@media (max-width:1100px){.page{grid-template-columns:minmax(0,1fr)}}
+h1,h2,h3{margin:0;text-wrap:balance}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+
+/* ---------- app window ---------- */
+.win{background:var(--win);border:1px solid var(--line);border-radius:10px;overflow:hidden;position:relative;min-width:0;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.titlebar{display:flex;align-items:center;gap:8px;padding:7px 12px;background:#10161E;border-bottom:1px solid var(--line-soft);color:var(--dim);font-size:12px}
+.titlebar svg{width:16px;height:16px}
+.titlebar .ctl{margin-left:auto;display:flex;gap:18px;letter-spacing:.1em}
+.app{padding:14px 18px 12px;display:flex;flex-direction:column;gap:11px}
+.head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.head svg{width:38px;height:38px}
+.head h1{font-size:23px;font-weight:700}
+.head .privacy{margin-left:auto;color:var(--muted);font-size:12px}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bar .file{color:var(--muted)}
+
+/* buttons: hover eases, press shrinks and springs back, ready buttons pulse once */
+.btn{background:#253241;border:1px solid var(--line);border-radius:6px;padding:8px 13px;cursor:pointer;
+  transition:background var(--t-hover) var(--ease-out),border-color var(--t-hover) var(--ease-out),transform 260ms var(--ease-spring),box-shadow 400ms var(--ease-out)}
+@media (hover:hover) and (pointer:fine){.btn:hover:not(:disabled){background:#334757;border-color:var(--teal)}}
+.btn:active:not(:disabled){transform:scale(.97);transition-duration:var(--t-hover),var(--t-hover),var(--t-press),400ms}
+.btn.primary{background:var(--teal);color:#121923;font-weight:700;border-color:var(--teal)}
+@media (hover:hover) and (pointer:fine){.btn.primary:hover:not(:disabled){background:#6BE0C1}}
+.btn.primary:active:not(:disabled){background:var(--teal-press)}
+.btn:disabled{background:#202B36;color:var(--dim);border-color:#303B47;cursor:default}
+.btn.wide{width:100%}
+.btn.pulse{animation:pulse 900ms var(--ease-out) 1}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(87,214,181,.65)}100%{box-shadow:0 0 0 14px rgba(87,214,181,0)}}
+
+/* step tabs with a sliding highlight */
+.tabs{position:relative;display:flex;justify-content:center;gap:6px;padding:3px}
+.tab{position:relative;z-index:1;background:none;border:1px solid transparent;border-radius:6px;padding:10px 20px;color:var(--muted);cursor:pointer;transition:color var(--t-panel) var(--ease-out)}
+.tab[aria-selected="true"]{color:var(--teal)}
+.tab:disabled{cursor:default;opacity:.55}
+.pill{position:absolute;left:0;top:3px;height:calc(100% - 6px);background:var(--teal-deep);border:1px solid #459E8B;border-radius:6px;
+  transition:transform 280ms var(--ease-out),width 280ms var(--ease-out)}
+
+.heading{font-size:21px;font-weight:700}
+.work{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(0,1fr);gap:14px;min-height:430px}
+@media (max-width:760px){.work{grid-template-columns:minmax(0,1fr)}}
+
+/* video area */
+.player{display:flex;flex-direction:column;gap:8px;min-width:0}
+.screen{position:relative;aspect-ratio:16/9;max-width:100%;border-radius:6px;overflow:hidden;background:#0B0F14;border:1px solid var(--line-soft)}
+.frame{position:absolute;inset:0;background:
+  radial-gradient(60% 70% at 70% 30%,#3B4A5E 0%,transparent 70%),
+  radial-gradient(40% 50% at 20% 70%,#2A3B3A 0%,transparent 70%),
+  linear-gradient(160deg,#1E2733,#0E1319);transition:opacity 300ms var(--ease-out)}
+.frame .figure{position:absolute;left:58%;top:22%;width:14%;height:58%;border-radius:40% 40% 8% 8%;background:linear-gradient(#5A6678,#2B3542);opacity:.8}
+.frame .hud{position:absolute;left:4%;top:5%;color:#9FB0C4;font-size:11px;letter-spacing:.08em}
+.cap{position:absolute;left:50%;top:76%;transform:translate(-50%,-50%);padding:6px 16px;border-radius:5px;background:rgba(13,17,23,.82);
+  font:700 clamp(14px,2.1vw,22px)/1.5 var(--ar);direction:rtl;text-align:center;white-space:nowrap;cursor:grab;user-select:none;touch-action:none;
+  outline:2px solid transparent;outline-offset:3px;transition:outline-color 180ms var(--ease-out),box-shadow 200ms var(--ease-out),scale 200ms var(--ease-out)}
+.cap .name{display:block;font-size:.62em;color:var(--teal);font-weight:600}
+.cap.selected{outline-color:var(--teal)}
+.cap.lifted{cursor:grabbing;box-shadow:0 14px 28px rgba(0,0,0,.55);scale:1.03}
+.guide-line{position:absolute;left:50%;top:0;bottom:0;width:0;border-left:1px dashed var(--teal);opacity:0;transition:opacity 120ms var(--ease-out)}
+.guide-line.on{opacity:.9}
+.drop{position:absolute;inset:14px;border:2px dashed var(--line);border-radius:8px;display:grid;place-content:center;justify-items:center;gap:10px;text-align:center;color:var(--muted);
+  background:rgba(21,27,36,.75);transition:opacity 260ms var(--ease-out),border-color 180ms var(--ease-out),background 180ms var(--ease-out),scale 220ms var(--ease-out)}
+.drop svg{width:40px;height:40px;color:var(--dim);transition:transform 260ms var(--ease-spring),color 180ms}
+.drop.hot{border-color:var(--teal);background:rgba(32,62,60,.55);scale:1.01}
+.drop.hot svg{transform:translateY(-4px);color:var(--teal)}
+.drop strong{color:var(--fg);font-size:15px}
+.hidden-fade{opacity:0;pointer-events:none}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.controls .time{color:var(--muted);font-variant-numeric:tabular-nums;margin-left:auto}
+.seek{height:4px;border-radius:2px;background:#253241;position:relative}
+.seek i{position:absolute;inset:0 auto 0 0;width:34%;background:var(--muted);border-radius:2px}
+
+/* review table under the video */
+.table-wrap{border:1px solid var(--line-soft);border-radius:6px;overflow:auto;max-height:190px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th{position:sticky;top:0;background:var(--card);color:var(--muted);text-align:left;font-weight:600;padding:7px 9px}
+td{padding:7px 9px;border-top:1px solid var(--line-soft);vertical-align:top}
+td.t{font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+td.ar{direction:rtl;text-align:right;font-family:var(--ar)}
+tr{cursor:pointer}
+tr.sel td{background:#234D49}
+tbody{transition:opacity 140ms var(--ease-out)}
+tbody.fading{opacity:0}
+tr.new td{animation:newrow 1400ms var(--ease-out) both}
+@keyframes newrow{0%{background:rgba(87,214,181,.32)}100%{background:transparent}}
+tr.saved td{animation:saved 900ms var(--ease-out) 1}
+@keyframes saved{0%{background:rgba(87,214,181,.45)}100%{background:transparent}}
+.chip{display:inline-block;padding:1px 7px;border-radius:9px;font-size:11px;border:1px solid var(--line)}
+.chip.ok{color:var(--teal);border-color:#2F6E62}
+.chip.flag{color:#F2C46D;border-color:#6B5A2E}
+
+/* right-hand step panel */
+.side{position:relative;min-width:0}
+.panel{display:flex;flex-direction:column;gap:9px}
+.panel[hidden]{display:none!important}
+.panel.enter{animation:enter var(--t-panel) var(--ease-out) both}
+@keyframes enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.row{display:grid;grid-template-columns:118px minmax(0,1fr);gap:8px;align-items:center}
+.field{background:var(--field);border:1px solid var(--line);border-radius:4px;padding:7px 8px;color:var(--fg);min-width:0}
+.muted{color:var(--muted)}
+.box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.acc-head{display:flex;align-items:center;gap:8px;cursor:pointer;background:none;border:0;padding:0;width:100%;text-align:left;font-weight:600}
+.acc-head .chev{transition:transform 220ms var(--ease-out);color:var(--muted)}
+.acc[data-open="true"] .chev{transform:rotate(90deg)}
+.acc-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows 220ms var(--ease-out)}
+.acc[data-open="true"] .acc-body{grid-template-rows:1fr}
+.acc-body>div{overflow:hidden}
+.acc-body .inner{display:flex;flex-direction:column;gap:8px;padding-top:10px}
+.approved{color:var(--muted);transition:color 600ms var(--ease-out)}
+.approved.flash{color:var(--teal);transition:none}
+.check{display:flex;gap:8px;align-items:center}
+
+/* processing strip */
+.strip{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line-soft);padding-top:10px}
+.steps{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;font-size:12.5px}
+.steps .s{display:inline-flex;align-items:center;gap:5px;color:var(--dim)}
+.steps .s.done{color:var(--teal)}
+.steps .s.now{color:var(--fg);font-weight:700}
+.steps .s.fail{color:var(--red);font-weight:700}
+.steps .mark{display:inline-grid;place-items:center;width:12px}
+.steps .s.now .mark i{width:8px;height:8px;border-radius:50%;background:var(--fg);display:block;animation:breathe 1.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.4);opacity:.55}}
+.steps .s.done .mark{animation:pop 260ms var(--ease-spring) both}
+@keyframes pop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+.steps .sep{color:var(--dim)}
+.steps .detail{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}
+.prog{height:6px;border-radius:3px;background:#253241;overflow:hidden;position:relative}
+.prog i{position:absolute;inset:0 auto 0 0;width:0;background:var(--teal);border-radius:3px;transition:width 250ms var(--ease-out)}
+.prog.busy i{width:100%;background:linear-gradient(90deg,transparent 0%,rgba(87,214,181,.15) 30%,var(--teal) 50%,rgba(87,214,181,.15) 70%,transparent 100%);background-size:45% 100%;background-repeat:no-repeat;animation:shine 1.3s linear infinite}
+@keyframes shine{from{background-position:-50% 0}to{background-position:150% 0}}
+.status{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.status .msg{color:var(--muted);flex:1;min-width:0;transition:color 600ms var(--ease-out)}
+.status .msg.flash{color:var(--teal);transition:none}
+.status .el{color:var(--dim);font-variant-numeric:tabular-nums}
+
+/* toasts */
+.toasts{position:absolute;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;align-items:flex-end;z-index:5;pointer-events:none}
+.toast{pointer-events:auto;display:flex;align-items:center;gap:10px;background:#1F2B38;border:1px solid #2F6E62;border-radius:8px;padding:10px 12px;box-shadow:0 12px 28px rgba(0,0,0,.45);
+  transition:opacity var(--t-toast) var(--ease-out),transform var(--t-toast) var(--ease-out)}
+.toast.out{opacity:0;transform:translateY(12px)}
+.toast.leaving{transition-duration:180ms}
+.toast svg{width:18px;height:18px;color:var(--teal);flex:none}
+.toast .btn{padding:5px 10px}
+
+/* dialog */
+.scrim{position:absolute;inset:0;background:rgba(6,9,13,.6);display:grid;place-items:center;z-index:6;transition:opacity 180ms var(--ease-out)}
+.scrim.out{opacity:0;pointer-events:none}
+.dialog{background:var(--win);border:1px solid var(--line);border-radius:10px;width:min(440px,90%);padding:16px;display:flex;flex-direction:column;gap:10px;
+  transition:opacity 200ms var(--ease-out),transform 200ms var(--ease-out)}
+.scrim.out .dialog{opacity:0;transform:scale(.97)}
+.scrim.closing,.scrim.closing .dialog{transition-duration:130ms}
+.dialog textarea{background:var(--field);border:1px solid var(--line);border-radius:4px;color:var(--fg);padding:8px;font:13px/1.6 var(--ui);min-height:110px;resize:none}
+.dialog .actions{display:flex;justify-content:flex-end;gap:8px}
+
+/* launch sequence */
+.launch .stage{animation:rise 340ms var(--ease-out) both}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+/* ---------- guide ---------- */
+.guide{display:flex;flex-direction:column;gap:12px;min-width:0}
+.guide header h2{font-size:18px}
+.guide header p{margin:.3em 0 0;color:var(--muted)}
+.switch{display:flex;align-items:center;gap:8px;color:var(--muted);cursor:pointer}
+.motions{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;counter-reset:m}
+.motions li{background:var(--win);border:1px solid var(--line-soft);border-radius:8px;padding:9px 11px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:center}
+.motions b{font-size:13px}
+.motions b::before{counter-increment:m;content:counter(m) ". ";color:var(--dim);font-weight:600}
+.motions span{grid-column:1;color:var(--muted);font-size:12px}
+.motions .spec{color:var(--dim);font-size:11.5px;font-variant-numeric:tabular-nums}
+.motions .btn{grid-row:1/span 3;grid-column:2;padding:6px 11px}
+.motions li.lit{border-color:var(--teal);transition:border-color 300ms var(--ease-out)}
+.note{color:var(--dim);font-size:12px;border-top:1px solid var(--line-soft);padding-top:10px}
+
+/* reduced motion: gentler, not zero */
+.reduce *, .reduce *::before, .reduce *::after{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:80ms!important}
+.reduce .prog.busy i{animation:none;background:rgba(87,214,181,.35)}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:80ms!important}
+  .prog.busy i{animation:none;background:rgba(87,214,181,.35)}
+}
+</style>
+
+<div class="page">
+<section class="win" id="win" aria-label="Video Translator app window">
+  <div class="titlebar">
+    <svg viewBox="0 0 256 256" aria-hidden="true"><use href="#logo"/></svg>
+    <span>Video Translator</span><span class="ctl" aria-hidden="true">—&nbsp;☐&nbsp;✕</span>
+  </div>
+  <div class="app" id="app">
+    <div class="head stage">
+      <svg viewBox="0 0 256 256" aria-hidden="true"><use href="#logo"/></svg>
+      <h1>Video Translator</h1>
+      <span class="privacy">Local AI / No uploads / Original audio kept</span>
+    </div>
+    <div class="bar stage" style="animation-delay:50ms">
+      <button class="btn" id="selectVideo">Select video</button>
+      <button class="btn">Open project</button>
+      <button class="btn" id="saveBtn">Save project</button>
+      <span class="file" id="fileLabel">Select a video to begin</span>
+    </div>
+    <div class="tabs stage" role="tablist" id="tabs" style="animation-delay:100ms">
+      <span class="pill" id="pill" aria-hidden="true"></span>
+      <button class="tab" role="tab" aria-selected="true" data-tab="setup">1&nbsp;&nbsp;Setup</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="review">2&nbsp;&nbsp;Review</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="preview">3&nbsp;&nbsp;Preview</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="export">4&nbsp;&nbsp;Export</button>
+    </div>
+    <h2 class="heading stage" id="heading" style="animation-delay:150ms">Set up your translation</h2>
+    <div class="work stage" style="animation-delay:200ms">
+      <div class="player">
+        <div class="screen" id="screen">
+          <div class="frame hidden-fade" id="frame"><span class="hud">MY VIDEO</span><span class="figure"></span></div>
+          <span class="guide-line" id="guideLine"></span>
+          <div class="cap hidden-fade" id="cap" tabindex="0" aria-label="Subtitle, drag to move">
+            <span class="name">سول</span>لا تقلق. سأستعيد المفتاح لك.
+          </div>
+          <div class="drop" id="drop">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            <strong>Drop a video here</strong>
+            <span>or choose Select video · MP4, MKV, MOV</span>
+            <button class="btn" id="fakeDrag">Show a drag over the window</button>
+          </div>
+        </div>
+        <div class="controls">
+          <button class="btn">Play / pause</button><button class="btn">Live edits</button><button class="btn">Original</button>
+          <span class="time" id="time">0:00</span>
+        </div>
+        <div class="seek" aria-hidden="true"><i></i></div>
+        <div id="reviewTable" hidden>
+          <div class="controls" style="margin-bottom:6px">
+            <span class="muted">Original and translation</span>
+            <select class="field" id="filter" style="margin-left:auto;padding:4px 6px">
+              <option>All subtitles</option><option>Needs review</option><option>Reviewed</option>
+            </select>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Start</th><th>Original</th><th>Translation</th><th>Review</th></tr></thead>
+            <tbody id="rows"></tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <div class="side" id="side">
+        <div class="panel" data-panel="setup">
+          <div class="row"><span>Translation source</span><span class="field">Visible subtitles (OCR)</span></div>
+          <div class="row"><span>Translate into</span><span class="field">Arabic</span></div>
+          <div class="row"><span>Translation model</span><span class="field">gemma4:12b</span></div>
+          <span class="muted">Ollama running · gemma4:12b installed</span>
+          <button class="btn wide" id="namesBtn">Edit names / terminology</button>
+          <div class="box acc" id="adv" data-open="false">
+            <button class="acc-head" aria-expanded="false" aria-controls="advBody"><span class="chev">›</span>Advanced processing settings</button>
+            <div class="acc-body" id="advBody"><div><div class="inner">
+              <div class="row"><span>Device</span><span class="field">Auto (prefer GPU)</span></div>
+              <div class="row"><span>Start (seconds)</span><span class="field">0</span></div>
+              <div class="row"><span>End (seconds)</span><span class="field">6879</span></div>
+            </div></div></div>
+          </div>
+          <span class="muted">Recognise and translate locally. Processing can be cancelled and resumed.</span>
+          <button class="btn primary wide" id="processBtn" disabled>Process / Resume</button>
+        </div>
+        <div class="panel" data-panel="review" hidden>
+          <div class="box"><b>Selected subtitle</b>
+            <div class="row" style="margin-top:8px"><span>Start · End</span><span class="field" style="font-variant-numeric:tabular-nums">22.50 · 25.75</span></div>
+            <textarea class="field" id="editText" style="width:100%;margin-top:8px;min-height:74px;direction:rtl;font:15px/1.6 var(--ar);resize:none" aria-label="Translation">سول
+لا تقلق. سأستعيد المفتاح لك.</textarea>
+            <button class="btn wide" id="saveLine" style="margin-top:8px">Save this line</button>
+          </div>
+          <button class="btn wide">Word &amp; phrase replacements</button>
+          <button class="btn primary wide" data-go="preview">Continue to preview</button>
+        </div>
+        <div class="panel" data-panel="preview" hidden>
+          <span class="muted">Approve the translation, timing and covers before export.</span>
+          <div class="row"><span>Start (seconds)</span><span class="field">22</span></div>
+          <div class="row"><span>Duration</span><span class="field">12</span></div>
+          <button class="btn primary wide" id="genBtn">Generate preview</button>
+          <button class="btn wide" id="approveBtn" disabled>I watched this preview · approve</button>
+          <span class="approved" id="approvedLabel">Generate and watch a preview first.</span>
+          <button class="btn wide" id="toExport" data-go="export" disabled>Continue to export</button>
+        </div>
+        <div class="panel" data-panel="export" hidden>
+          <div class="row"><span>Appearance</span><span class="field">Replace original subtitles</span></div>
+          <span class="muted">Original video stays unchanged. Every original audio track is kept.</span>
+          <span>MKV video · SRT · ASS · Editable project</span>
+          <span class="muted" id="exportApproval">A current approved preview is required.</span>
+          <button class="btn primary wide" id="exportBtn" disabled>Export translated video</button>
+          <button class="btn wide" data-go="preview">Back to preview &amp; approval</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="strip stage" style="animation-delay:250ms">
+      <div class="steps" id="steps" aria-live="polite"><span class="muted">No job running.</span></div>
+      <div class="prog" id="prog"><i></i></div>
+      <div class="status">
+        <span class="msg" id="msg">Ready. Select a video or open an editable project.</span>
+        <span class="el" id="elapsed"></span>
+        <button class="btn" id="logBtn" aria-expanded="false">Processing log</button>
+        <button class="btn" id="cancelBtn" disabled>Cancel processing</button>
+      </div>
+      <div class="acc" id="log" data-open="false"><div class="acc-body"><div><pre class="field" id="logText" style="margin:8px 0 0;max-height:90px;overflow:auto;font-size:11px;color:var(--muted)">No log yet.</pre></div></div></div>
+    </div>
+  </div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="scrim out" id="scrim" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+      <h3 id="dlgTitle" style="font-size:15px">Names and terminology</h3>
+      <textarea id="dlgText" aria-label="Names, one per line">Soul = سول
+The Hunt = الصيّاد
+Panicked Mandate Disciple = تلميذ العهد المذعور
+Lingering Memory = ذكرى باقية</textarea>
+      <div class="actions"><button class="btn" id="dlgCancel">Cancel</button><button class="btn primary" id="dlgSave">Save names</button></div>
+    </div>
+  </div>
+</section>
+
+<aside class="guide">
+  <header>
+    <h2>Motion in the app</h2>
+    <p>Use the window like the real app, or press Show to see each motion. Live video and precise editing stay instant.</p>
+  </header>
+  <label class="switch"><input type="checkbox" id="reduce"> Preview with Windows animation effects turned off</label>
+  <ol class="motions" id="motions">
+    <li data-m="launch"><b>App opening</b><span>Header, step tabs and panels rise in sequence, once per launch.</span><span class="spec">340 ms each · 50 ms apart</span><button class="btn">Show</button></li>
+    <li data-m="steps"><b>Moving between steps</b><span>The teal highlight slides to the new tab; the side panel fades and rises. Video keeps playing.</span><span class="spec">280 ms slide · 220 ms panel</span><button class="btn">Show</button></li>
+    <li data-m="buttons"><b>Buttons</b><span>Hover colour eases in, a press shrinks to 97 % and springs back, a newly ready main button pulses once.</span><span class="spec">150 ms hover · 120 ms press · 900 ms pulse</span><button class="btn">Show</button></li>
+    <li data-m="sections"><b>Sections open and close</b><span>Advanced settings and the processing log slide instead of snapping.</span><span class="spec">220 ms</span><button class="btn">Show</button></li>
+    <li data-m="process"><b>Processing</b><span>A shine runs along the bar while models load, the current step breathes, finished steps pop a ✓.</span><span class="spec">250 ms bar glide · 260 ms ✓</span><button class="btn">Show</button></li>
+    <li data-m="table"><b>Review table</b><span>New translations fade in with a teal highlight, a saved line flashes, the filter fades the list.</span><span class="spec">1.4 s highlight · 140 ms filter</span><button class="btn">Show</button></li>
+    <li data-m="caption"><b>Subtitle in the video</b><span>Selection outline fades in; dragging lifts it with a shadow; a centre guide appears and snaps.</span><span class="spec">180 ms outline · 200 ms lift</span><button class="btn">Show</button></li>
+    <li data-m="dialog"><b>Dialogs</b><span>Open with a quick fade and grow from 97 %, close faster than they open.</span><span class="spec">200 ms open · 130 ms close</span><button class="btn">Show</button></li>
+    <li data-m="toast"><b>Notifications</b><span>Saved, approved and export done slide in at the bottom right and leave the same way.</span><span class="spec">260 ms in · 180 ms out · 3.5 s on screen</span><button class="btn">Show</button></li>
+    <li data-m="drop"><b>Empty start screen</b><span>A drop zone that lights up when a video is dragged over the window (new: drag and drop to open).</span><span class="spec">180 ms highlight</span><button class="btn">Show</button></li>
+  </ol>
+  <p class="note">Kept instant on purpose: selecting table rows (each one seeks the video), typing, the seek bar, and status text you read while a job runs.</p>
+</aside>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs><g id="logo">
+    <rect x="8" y="8" width="240" height="240" rx="52" fill="#151B24"/>
+    <rect x="10" y="10" width="236" height="236" rx="50" fill="none" stroke="#354153" stroke-width="4"/>
+    <path d="M58 40 H162 Q182 40 182 60 V124 Q182 144 162 144 H86 L58 168 V144 Q38 144 38 124 V60 Q38 40 58 40Z" fill="#EDF2FA"/>
+    <path d="M96 66 Q91 63 91 69 V115 Q91 121 96 118 L134 95 Q139 92 134 89Z" fill="#151B24"/>
+    <path d="M102 120 H198 Q218 120 218 140 V190 Q218 210 198 210 H198 V232 L172 210 H102 Q82 210 82 190 V140 Q82 120 102 120Z" fill="#151B24"/>
+    <path d="M104 126 H196 Q212 126 212 142 V188 Q212 204 196 204 H192 V218 L175 204 H104 Q88 204 88 188 V142 Q88 126 104 126Z" fill="#57D6B5"/>
+    <text x="150" y="190" font-family="Segoe UI,Tahoma,sans-serif" font-weight="700" font-size="76" text-anchor="middle" fill="#151B24">ع</text>
+  </g></defs>
+</svg>
+
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const win=$('#win'),app=$('#app');
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const HEAD={setup:'Set up your translation',review:'Review your translation',preview:'Check a short preview',export:'Export your translation'};
+const LINES=[
+ ['0:09','Panicked Mandate Disciple\nMonsters! Faceless monsters...','تلميذ العهد المذعور\nوحوش! وحوش بلا وجوه...','review'],
+ ['0:14','Panicked Mandate Disciple\nThe camp key... I dropped it in there','تلميذ العهد المذعور\nمفتاح المعسكر... أسقطته هناك','review'],
+ ['0:22','Soul\nDon\'t panic. I\'ll get the key back for you','سول\nلا تقلق. سأستعيد المفتاح لك.','ok'],
+ ['0:57','The Hunt\nKill! Kill! Anyone who stands in my way dies!','الصيّاد\nاقتل! اقتل! كل من يقف في طريقي سيموت!','ok'],
+ ['8:53','Lingering Memory\nMaster... look.','ذكرى باقية\nيا معلمي... انظر','flag'],
+ ['9:00','Lingering Memory\nThe bowstring... why did it snap?','ذكرى باقية\nوتر القوس... لماذا انقطع؟','review'],
+];
+let state={video:false,tab:'setup',processed:false,previewed:false,approved:false,busy:false};
+
+/* ---- reduced motion toggle ---- */
+$('#reduce').addEventListener('change',e=>document.documentElement.classList.toggle('reduce',e.target.checked));
+
+/* ---- tabs with sliding highlight ---- */
+function placePill(){const t=$(`.tab[data-tab="${state.tab}"]`),bar=$('#tabs');const r=t.getBoundingClientRect(),b=bar.getBoundingClientRect();
+  $('#pill').style.width=r.width+'px';$('#pill').style.transform=`translateX(${r.left-b.left}px)`;}
+function go(tab){
+  if(tab===state.tab)return;state.tab=tab;
+  $$('.tab').forEach(t=>t.setAttribute('aria-selected',t.dataset.tab===tab));placePill();
+  $('#heading').textContent=HEAD[tab];
+  $$('.panel').forEach(p=>{const on=p.dataset.panel===tab;p.hidden=!on;p.classList.remove('enter');if(on){void p.offsetWidth;p.classList.add('enter');}});
+  $('#reviewTable').hidden=tab!=='review';
+}
+$$('.tab').forEach(t=>t.addEventListener('click',()=>go(t.dataset.tab)));
+$$('[data-go]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.go)));
+addEventListener('resize',placePill);
+
+/* ---- accordions ---- */
+function toggleAcc(acc,btn,open){open=open??acc.dataset.open!=='true';acc.dataset.open=open;if(btn)btn.setAttribute('aria-expanded',open);}
+$('#adv .acc-head').addEventListener('click',e=>toggleAcc($('#adv'),e.currentTarget));
+$('#logBtn').addEventListener('click',e=>toggleAcc($('#log'),e.currentTarget));
+
+/* ---- toasts ---- */
+const ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+function toast(text,action){
+  const t=document.createElement('div');t.className='toast out';t.innerHTML=ICON+`<span>${text}</span>`;
+  if(action){const b=document.createElement('button');b.className='btn';b.textContent=action;t.append(b);b.onclick=()=>dismiss(t);}
+  $('#toasts').append(t);requestAnimationFrame(()=>requestAnimationFrame(()=>t.classList.remove('out')));
+  setTimeout(()=>dismiss(t),3500);
+}
+function dismiss(t){if(!t.isConnected)return;t.classList.add('out','leaving');setTimeout(()=>t.remove(),200);}
+
+/* ---- status flash ---- */
+function flash(el){el.classList.add('flash');requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.remove('flash')));}
+
+/* ---- empty state, drag over the window, loading a video ---- */
+let dragDepth=0;
+win.addEventListener('dragenter',e=>{e.preventDefault();dragDepth++;if(!state.video)$('#drop').classList.add('hot');});
+win.addEventListener('dragleave',()=>{if(--dragDepth<=0){dragDepth=0;$('#drop').classList.remove('hot');}});
+win.addEventListener('dragover',e=>e.preventDefault());
+win.addEventListener('drop',e=>{e.preventDefault();dragDepth=0;$('#drop').classList.remove('hot');if(!state.video)loadVideo();});
+async function showDrag(){if(state.video)resetVideo();$('#drop').classList.add('hot');await wait(1100);$('#drop').classList.remove('hot');await wait(250);loadVideo();}
+$('#fakeDrag').addEventListener('click',showDrag);
+$('#selectVideo').addEventListener('click',()=>{if(!state.video)loadVideo();});
+function loadVideo(){
+  state.video=true;$('#drop').classList.add('hidden-fade');$('#frame').classList.remove('hidden-fade');$('#cap').classList.remove('hidden-fade');
+  $('#fileLabel').textContent='My video.mp4';$('#time').textContent='0:22 / 1:30:00';
+  const p=$('#processBtn');p.disabled=false;pulse(p);
+}
+function resetVideo(){state.video=false;$('#drop').classList.remove('hidden-fade');$('#frame').classList.add('hidden-fade');$('#cap').classList.add('hidden-fade');$('#fileLabel').textContent='Select a video to begin';$('#time').textContent='0:00';$('#processBtn').disabled=true;}
+function pulse(b){b.classList.remove('pulse');void b.offsetWidth;b.classList.add('pulse');}
+
+/* ---- processing ---- */
+const STEPS=['Load models','Read on-screen subtitles','Translate','Ready for review'];
+function drawSteps(names,i,failed){
+  const work=names.length-1;
+  const html=names.map((n,k)=>{const c=k<i?'done':k===i?(failed?'fail':'now'):'';const m=k<i?'✓':k===i?(failed?'✕':'<i></i>'):'○';
+    return `<span class="s ${c}"><span class="mark">${m}</span>${n}</span>`;}).join('<span class="sep">›</span>');
+  return html;
+}
+function setSteps(names,i,detail,failed){$('#steps').innerHTML=drawSteps(names,i,failed)+`<span class="detail">${detail}</span>`;}
+function setProg(v){const p=$('#prog');p.classList.toggle('busy',v===null);p.firstElementChild.style.width=v===null?'':v+'%';}
+let timer;
+function startClock(){const t0=Date.now();clearInterval(timer);timer=setInterval(()=>{const s=Math.round((Date.now()-t0)/1000);$('#elapsed').textContent=`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')} elapsed`;},500);}
+async function runJob(names,phases,done){
+  if(state.busy)return;state.busy=true;$('#cancelBtn').disabled=false;$$('.tab').forEach(t=>t.disabled=true);startClock();
+  $('#logText').textContent='';
+  let step=0;
+  for(const ph of phases){
+    step=ph.step;setSteps(names,step,ph.busy?`Step ${step+1} of ${names.length-1} · ${names[step]}`:'' ,false);
+    if(ph.busy){setProg(null);$('#msg').textContent=ph.msg;$('#logText').textContent+=ph.msg+'\n';await wait(ph.ms);continue;}
+    for(let v=ph.from;v<=ph.to;v+=ph.inc){
+      setProg(v);$('#msg').textContent=ph.msg(v);
+      setSteps(names,step,(names.length>2?`Step ${step+1} of ${names.length-1} · `:'')+`${names[step]} · ${v}%`);
+      await wait(ph.ms);
+    }
+    $('#logText').textContent+=ph.msg(ph.to)+'\n';
+  }
+  setProg(100);setSteps(names,names.length,'Done');clearInterval(timer);
+  state.busy=false;$('#cancelBtn').disabled=true;$$('.tab').forEach(t=>t.disabled=false);
+  done();flash($('#msg'));
+}
+function processVideo(){
+  return runJob(STEPS,[
+    {step:0,busy:true,msg:'Loading offline OCR; scanning only the selected rectangle',ms:1300},
+    {step:1,from:0,to:50,inc:5,ms:110,msg:v=>`OCR ${(v/50*6879).toFixed(1)} / 6879.0s; timing resolution 0.25s`},
+    {step:2,from:55,to:100,inc:5,ms:130,msg:v=>`Translating batch of 12 cues locally (${Math.round((v-50)/50*14)} of 14)`},
+  ],()=>{$('#msg').textContent='Translation ready for review: 160 subtitles.';state.processed=true;fillRows(true);go('review');toast('Translation ready for review');});
+}
+$('#processBtn').addEventListener('click',processVideo);
+$('#cancelBtn').addEventListener('click',()=>{});
+
+/* ---- review table ---- */
+function fillRows(fresh,filter='All subtitles'){
+  const tb=$('#rows');
+  const keep=LINES.filter(l=>filter==='All subtitles'||(filter==='Reviewed'?l[3]==='ok':l[3]!=='ok'));
+  tb.innerHTML=keep.map((l,i)=>`<tr class="${fresh?'new':''}${i===2&&filter==='All subtitles'?' sel':''}" style="${fresh?`--d:${i*40}ms`:''}"><td class="t">${l[0]}</td><td>${l[1].replace('\n','<br>')}</td><td class="ar">${l[2].replace('\n','<br>')}</td><td><span class="chip ${l[3]==='ok'?'ok':l[3]==='flag'?'flag':''}">${l[3]==='ok'?'Reviewed':l[3]==='flag'?'Flagged':'Needs review'}</span></td></tr>`).join('');
+  if(fresh)$$('#rows tr.new td').forEach(td=>td.style.animationDelay=td.parentElement.style.getPropertyValue('--d'));
+  $$('#rows tr').forEach(tr=>tr.addEventListener('click',()=>{$$('#rows tr').forEach(r=>r.classList.remove('sel'));tr.classList.add('sel');}));
+}
+$('#filter').addEventListener('change',async e=>{const tb=$('#rows');tb.classList.add('fading');await wait(140);fillRows(false,e.target.value);tb.classList.remove('fading');});
+$('#saveLine').addEventListener('click',()=>{const r=$('#rows tr.sel')||$('#rows tr');if(r){r.classList.remove('saved');void r.offsetWidth;r.classList.add('saved');}
+  const t=$('#editText').value.split('\n');$('#cap').innerHTML=`<span class="name">${t[0]||''}</span>${t.slice(1).join(' ')}`;toast('Line saved');});
+
+/* ---- preview and export ---- */
+$('#genBtn').addEventListener('click',()=>runJob(['Render preview','Ready to watch'],[{step:0,from:0,to:100,inc:10,ms:120,msg:v=>`Rendering preview ${v}%`}],
+  ()=>{state.previewed=true;$('#msg').textContent='Preview ready: 22.0–34.0 s.';const a=$('#approveBtn');a.disabled=false;pulse(a);$('#approvedLabel').textContent='Watch the preview, then approve it.';}));
+$('#approveBtn').addEventListener('click',()=>{state.approved=true;const l=$('#approvedLabel');l.textContent='Current preview approved. Ready to export.';flash(l);
+  $('#approveBtn').disabled=true;const c=$('#toExport');c.disabled=false;pulse(c);const e=$('#exportBtn');e.disabled=false;$('#exportApproval').textContent='Preview approved. Ready to export.';toast('Preview approved');});
+$('#exportBtn').addEventListener('click',()=>runJob(['Render video','Saved'],[{step:0,from:0,to:100,inc:4,ms:90,msg:v=>`Rendering video ${v}%`}],
+  ()=>{$('#msg').textContent='Export complete: My video - Arabic.mkv';toast('Export complete','Open video');}));
+$('#saveBtn').addEventListener('click',()=>toast('Project saved'));
+
+/* ---- dialog ---- */
+function openDialog(){const s=$('#scrim');s.classList.remove('closing');s.setAttribute('aria-hidden','false');requestAnimationFrame(()=>s.classList.remove('out'));setTimeout(()=>$('#dlgText').focus(),40);}
+function closeDialog(saved){const s=$('#scrim');s.classList.add('closing','out');s.setAttribute('aria-hidden','true');$('#namesBtn').focus();if(saved)toast('Names saved');}
+$('#namesBtn').addEventListener('click',openDialog);$('#dlgCancel').addEventListener('click',()=>closeDialog(false));$('#dlgSave').addEventListener('click',()=>closeDialog(true));
+$('#scrim').addEventListener('click',e=>{if(e.target.id==='scrim')closeDialog(false);});
+addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#scrim').getAttribute('aria-hidden')==='false')closeDialog(false);});
+
+/* ---- subtitle drag with lift and centre guide ---- */
+(()=>{const cap=$('#cap'),scr=$('#screen'),line=$('#guideLine');let drag=null;
+  cap.addEventListener('pointerdown',e=>{cap.classList.add('selected','lifted');cap.setPointerCapture(e.pointerId);const r=scr.getBoundingClientRect();
+    drag={x:e.clientX,y:e.clientY,left:parseFloat(cap.style.left||50),top:parseFloat(cap.style.top||76),w:r.width,h:r.height};});
+  cap.addEventListener('pointermove',e=>{if(!drag)return;let x=drag.left+(e.clientX-drag.x)/drag.w*100,y=drag.top+(e.clientY-drag.y)/drag.h*100;
+    const near=Math.abs(x-50)<2.2;if(near)x=50;line.classList.toggle('on',near);
+    cap.style.left=Math.min(88,Math.max(12,x))+'%';cap.style.top=Math.min(92,Math.max(8,y))+'%';});
+  const end=()=>{if(!drag)return;drag=null;cap.classList.remove('lifted');line.classList.remove('on');};
+  cap.addEventListener('pointerup',end);cap.addEventListener('pointercancel',end);
+  scr.addEventListener('pointerdown',e=>{if(e.target!==cap&&!cap.contains(e.target))cap.classList.remove('selected');});
+})();
+async function showCaption(){if(!state.video)loadVideo();const cap=$('#cap'),line=$('#guideLine');cap.classList.add('selected');await wait(350);cap.classList.add('lifted');
+  for(const x of [50,56,62,58,53,50.5,50]){cap.style.left=x+'%';line.classList.toggle('on',Math.abs(x-50)<2.2);await wait(160);}
+  await wait(400);cap.classList.remove('lifted');line.classList.remove('on');}
+
+/* ---- launch sequence ---- */
+function launch(){app.classList.remove('launch');void app.offsetWidth;app.classList.add('launch');}
+
+/* ---- guide buttons ---- */
+const SHOW={
+  launch,
+  steps:async()=>{if(!state.processed){fillRows(false);}for(const t of ['review','preview','export','setup']){go(t);await wait(650);}},
+  buttons:async()=>{go('setup');if(!state.video)loadVideo();else pulse($('#processBtn'));},
+  sections:async()=>{go('setup');toggleAcc($('#adv'),$('#adv .acc-head'),true);await wait(900);toggleAcc($('#log'),$('#logBtn'),true);await wait(1100);toggleAcc($('#log'),$('#logBtn'),false);await wait(500);toggleAcc($('#adv'),$('#adv .acc-head'),false);},
+  process:async()=>{go('setup');if(!state.video)loadVideo();await wait(300);processVideo();},
+  table:async()=>{go('review');fillRows(true);await wait(1700);$('#filter').value='Needs review';$('#filter').dispatchEvent(new Event('change'));await wait(1100);$('#filter').value='All subtitles';$('#filter').dispatchEvent(new Event('change'));await wait(400);$('#saveLine').click();},
+  caption:showCaption,
+  dialog:async()=>{go('setup');openDialog();await wait(1400);closeDialog(true);},
+  toast:async()=>{toast('Project saved');await wait(600);toast('Preview approved');await wait(600);toast('Export complete','Open video');},
+  drop:showDrag,
+};
+$$('#motions li').forEach(li=>li.querySelector('.btn').addEventListener('click',async()=>{
+  $$('#motions li').forEach(x=>x.classList.remove('lit'));li.classList.add('lit');
+  win.scrollIntoView({block:'nearest',behavior:document.documentElement.classList.contains('reduce')?'auto':'smooth'});
+  await SHOW[li.dataset.m]();
+}));
+
+placePill();fillRows(false);launch();
+document.fonts&&document.fonts.ready.then(placePill);
+</script>

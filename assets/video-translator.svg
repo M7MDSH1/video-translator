@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><rect x="8" y="8" width="240" height="240" rx="52" fill="#151B24"/><rect x="10" y="10" width="236" height="236" rx="50" fill="none" stroke="#354153" stroke-width="4"/>
+  <path d="M58 40 H162 Q182 40 182 60 V124 Q182 144 162 144 H86 L58 168 V144 Q38 144 38 124 V60 Q38 40 58 40Z" fill="#EDF2FA"/>
+  <path d="M96 66 Q91 63 91 69 V115 Q91 121 96 118 L134 95 Q139 92 134 89Z" fill="#151B24"/>
+  <path d="M102 120 H198 Q218 120 218 140 V190 Q218 210 198 210 H198 V232 L172 210 H102 Q82 210 82 190 V140 Q82 120 102 120Z" fill="#151B24"/>
+  <path d="M104 126 H196 Q212 126 212 142 V188 Q212 204 196 204 H192 V218 L175 204 H104 Q88 204 88 188 V142 Q88 126 104 126Z" fill="#57D6B5"/>
+  <text x="150" y="190" font-family="Segoe UI" font-weight="700" font-size="76" text-anchor="middle" fill="#151B24">ع</text>
+</svg>
