@@ -37,15 +37,21 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -180,11 +186,42 @@ private fun CodeCell(digit: Char?, next: Boolean, wrong: Boolean, modifier: Modi
     }
 }
 
+// ---------------------------------------------------------------- Update
+
+// shortcut: the browser downloads the APK and the user opens it; install inside the app (FileProvider + install permission) if that proves clumsy.
+fun openUpdate(context: android.content.Context, update: Update) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(update.url))) }
+}
+
+/** Asks once per new build: Update or Later. After Later, the Update button on the home screen is still there. */
+@Composable
+fun UpdatePopup(update: Update) {
+    val context = LocalContext.current
+    var answered by rememberSaveable { mutableStateOf(Store.skippedBuild) }
+    if (answered >= update.build) return
+    fun close() { Store.skippedBuild = update.build; answered = update.build }
+    AlertDialog(
+        onDismissRequest = ::close, containerColor = Ink.Surface, titleContentColor = Ink.Text, textContentColor = Ink.Muted,
+        title = { Text("Update available", style = MaterialTheme.typography.titleMedium) },
+        text = { Text("A newer version of this app is ready. It downloads in your browser; open the file when it finishes to install it.", style = MaterialTheme.typography.bodyMedium) },
+        confirmButton = { TextButton(onClick = { close(); openUpdate(context, update) }) { Text("Update", color = Ink.Teal, style = MaterialTheme.typography.titleMedium) } },
+        dismissButton = { TextButton(onClick = ::close) { Text("Later", color = Ink.Muted, style = MaterialTheme.typography.titleMedium) } },
+    )
+}
+
 // ---------------------------------------------------------------- Home
 
 @Composable
-fun HomeScreen(state: UiState, onPick: () -> Unit, onStart: (mode: String) -> Unit) {
+fun HomeScreen(state: UiState, onPick: () -> Unit, onStart: (Choice) -> Unit) {
     var mode by rememberSaveable { mutableStateOf("speech") }
+    // The video's language starts on Auto each time: a leftover choice would misread the next video.
+    var source by rememberSaveable { mutableStateOf("auto") }
+    var target by rememberSaveable { mutableStateOf(Store.target) }
+    var picked by rememberSaveable { mutableStateOf(Store.model) }
+    val options by produceState(Options.Default) { value = withContext(Dispatchers.IO) { runCatching { Store.api().options() }.getOrDefault(Options.Default) } }
+    // A model saved earlier may have been removed from the PC since.
+    val needsLanguage = mode == "ocr" && source == "auto"
+    val model = picked.takeIf { it in options.models } ?: options.model.takeIf { it in options.models } ?: options.models.firstOrNull() ?: ""
     Column(ScreenPadding.verticalScroll(rememberScrollState()).padding(top = 20.dp, bottom = 24.dp)) {
         Row(Modifier.fillMaxWidth().rise(0), verticalAlignment = Alignment.CenterVertically) {
             Image(painterResource(R.drawable.logo), null, Modifier.size(36.dp))
@@ -192,6 +229,11 @@ fun HomeScreen(state: UiState, onPick: () -> Unit, onStart: (mode: String) -> Un
             Column(Modifier.weight(1f)) {
                 Text("Connected to", style = MaterialTheme.typography.labelMedium, color = Ink.Muted)
                 Text(state.pcName.ifBlank { "Your PC" }, style = MaterialTheme.typography.titleMedium, color = Ink.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            state.update?.let { update ->
+                val context = LocalContext.current
+                Text("Update", style = MaterialTheme.typography.labelMedium, color = Ink.Sunken,
+                    modifier = Modifier.pressable { openUpdate(context, update) }.clip(PillShape).background(Ink.Teal).padding(horizontal = 14.dp, vertical = 10.dp))
             }
             Text("Change PC", style = MaterialTheme.typography.labelMedium, color = Ink.Teal,
                 modifier = Modifier.clip(PillShape).pressable { Store.forget() }.padding(horizontal = 12.dp, vertical = 10.dp))
@@ -223,10 +265,29 @@ fun HomeScreen(state: UiState, onPick: () -> Unit, onStart: (mode: String) -> Un
             Spacer(Modifier.height(10.dp))
             ModeRow("On screen", "The video already shows subtitles in another language.", mode == "ocr") { mode = "ocr" }
         }
+        Spacer(Modifier.height(24.dp))
+
+        Column(Modifier.rise(4)) {
+            Text("Languages", style = MaterialTheme.typography.titleMedium, color = Ink.Text)
+            Spacer(Modifier.height(12.dp))
+            // Speech can be recognised without knowing the language; text on screen cannot, so there it has to be picked.
+            if (mode == "ocr") ChoiceRow("Subtitle language", if (needsLanguage) "Choose" else source, options.languages.filter { it.second != "auto" }) { source = it }
+            else ChoiceRow("Video language", source, options.languages) { source = it }
+            AnimatedVisibility(needsLanguage, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                Text("Pick the language of the subtitles shown in the video.", style = MaterialTheme.typography.bodyMedium, color = Ink.Teal,
+                    modifier = Modifier.padding(top = 8.dp, start = 4.dp))
+            }
+            Spacer(Modifier.height(10.dp))
+            ChoiceRow("Translate to", target, options.languages.filter { it.second != "auto" }) { target = it }
+            if (options.models.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                ChoiceRow("Translation model", model, options.models.map { it to it }) { picked = it }
+            }
+        }
         Spacer(Modifier.height(28.dp))
-        PrimaryButton("Translate", Modifier.rise(4), enabled = state.picked != null) { onStart(mode) }
+        PrimaryButton("Translate", Modifier.rise(5), enabled = state.picked != null && !needsLanguage) { onStart(Choice(mode, source, target, model)) }
         Text("Your PC must stay on with phone mode open.", style = MaterialTheme.typography.bodyMedium, color = Ink.Muted,
-            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 14.dp).rise(5))
+            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 14.dp).rise(6))
     }
 }
 
@@ -261,6 +322,28 @@ private fun PickedCard(picked: Picked, onPick: () -> Unit) {
             }
             Text("Change", style = MaterialTheme.typography.labelMedium, color = Ink.Sunken,
                 modifier = Modifier.pressable(onClick = onPick).clip(PillShape).background(Ink.Text).padding(horizontal = 16.dp, vertical = 10.dp))
+        }
+    }
+}
+
+/** One setting on a row; tapping it opens the list of [options] (name to value). */
+@Composable
+private fun ChoiceRow(label: String, value: String, options: List<Pair<String, String>>, onChoose: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(Modifier.fillMaxWidth().pressable { open = true }.clip(FieldShape).background(Ink.Surface).border(1.5.dp, Ink.Line, FieldShape)
+            .padding(start = 16.dp, end = 8.dp, top = 16.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = Ink.Muted)
+            Spacer(Modifier.width(12.dp))
+            Text(options.firstOrNull { it.second == value }?.first ?: value, style = MaterialTheme.typography.titleMedium, color = Ink.Text,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+            Icon(Icons.Filled.ArrowDropDown, null, tint = Ink.Muted)
+        }
+        DropdownMenu(open, { open = false }, containerColor = Ink.Surface) {
+            options.forEach { (name, code) ->
+                DropdownMenuItem(text = { Text(name, style = MaterialTheme.typography.titleMedium, color = if (code == value) Ink.Teal else Ink.Text) },
+                    onClick = { onChoose(code); open = false })
+            }
         }
     }
 }

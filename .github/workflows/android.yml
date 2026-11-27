@@ -1,0 +1,42 @@
+name: android
+# Builds the phone app and publishes it as the "android-latest" release whenever the app changes.
+# The installed app reads that release to offer the update, so the build number must only ever rise:
+# it is this workflow's run number, which restarts if this file is renamed (raise the offset below if that happens).
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/android.yml']
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Signing key
+        env:
+          KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEY" ]; then echo "::error::The ANDROID_KEYSTORE_BASE64 secret is missing; an unsigned app cannot update an installed one."; exit 1; fi
+          echo "$KEY" | base64 -d > "$RUNNER_TEMP/release.jks"
+      - name: Build
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE: ${{ runner.temp }}/release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          echo "BUILD=$((GITHUB_RUN_NUMBER + 1))" >> "$GITHUB_ENV"
+          bash ./gradlew assembleRelease -PversionCode=$((GITHUB_RUN_NUMBER + 1)) --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/VideoTranslator.apk"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-latest --cleanup-tag --yes || true
+          gh release create android-latest "$RUNNER_TEMP/VideoTranslator.apk" --target "$GITHUB_SHA" \
+            --title "Android app build $BUILD" \
+            --notes "The phone app for Video Translator. Download VideoTranslator.apk on your Android phone and open it to install."

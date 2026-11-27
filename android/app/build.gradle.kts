@@ -10,10 +10,21 @@ android {
         applicationId = "app.videotranslator.phone"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        // GitHub builds pass a rising number with -PversionCode; the app compares it to decide whether an update is newer.
+        versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionName = "1.$versionCode"
     }
-    buildTypes { release { isMinifyEnabled = false } }
+    // The published APK is signed with one permanent key (kept outside the repository), or the phone would refuse to update.
+    val keystore: String? = System.getenv("ANDROID_KEYSTORE")
+    signingConfigs {
+        if (keystore != null) create("release") {
+            storeFile = file(keystore)
+            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias = "videotranslator"
+            keyPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+        }
+    }
+    buildTypes { release { isMinifyEnabled = false; if (keystore != null) signingConfig = signingConfigs.getByName("release") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlin { jvmToolchain(21) }
     buildFeatures { compose = true }

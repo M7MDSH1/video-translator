@@ -44,6 +44,7 @@ class StartScreen(QWidget):
         super().__init__();self.window=window
         from .app import button
         outer=QVBoxLayout(self);outer.setContentsMargins(40,36,40,28);outer.setSpacing(22)
+        top=QHBoxLayout();top.addStretch();top.addWidget(window.update_button());outer.addLayout(top)
         outer.addStretch(1)
         head=QWidget();hl=QHBoxLayout(head);hl.setContentsMargins(0,0,0,0);hl.setSpacing(16)
         logo=QLabel();logo.setPixmap(QPixmap(str(ROOT/'assets'/'video-translator.png')).scaled(64,64,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))

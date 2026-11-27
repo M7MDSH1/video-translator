@@ -72,6 +72,24 @@ class PhoneServerTests(unittest.TestCase):
                 time.sleep(.05)
             self.assertFalse(alive(engine_pid));self.assertFalse(alive(child_pid))
             time.sleep(.3);self.assertEqual(json.loads(self.call('GET','/status',token=token)[1])['message'],'Cancelled.')  # the job thread does not overwrite it
+    def test_phone_chooses_languages_and_model(self):
+        token=self.pair();media={'width':1280,'height':720,'duration':5.0,'streams':[]};calls=[]
+        with patch.object(phone_server,'local_models',return_value=['gemma4:12b','other:4b']):
+            options=json.loads(self.call('GET','/options',token=token)[1])
+        self.assertEqual(options['models'],['gemma4:12b','other:4b']);self.assertIn({'name':'Chinese','code':'zh'},options['languages'])
+        def run(args,**kw):
+            calls.append(args[1:]);proc=MagicMock();proc.stdout=io.StringIO('');proc.wait.return_value=0;proc.poll.return_value=0;return proc
+        with patch.object(phone_server.subprocess,'Popen',side_effect=run),patch('videotranslator.engine.probe',return_value=media):
+            self.assertEqual(self.call('PUT','/upload?mode=ocr&source=zh&target=en&model=other:4b',b'video',token)[0],200)
+            for _ in range(100):
+                if json.loads(self.call('GET','/status',token=token)[1])['state']!='working':break
+                time.sleep(.05)
+            self.assertEqual(self.call('PUT','/upload?source=xx',b'video',token)[0],400)
+            self.assertEqual(self.call('PUT','/upload?model=bad%20name%3B',b'video',token)[0],400)
+        p=load_project(next(self.root.glob('projects/phone-*/project.json')))
+        self.assertEqual((p['mode'],p['source'],p['ocr_script'],p['target'],p['model']),('ocr','zh','zh','en','other:4b'))
+        # A reader the app does not ship is fetched before the engine starts.
+        self.assertEqual(calls[0][1:],['--ocr','zh']);self.assertTrue(calls[0][0].endswith('setup_models.py'));self.assertEqual(calls[1][:3],['-m','videotranslator.engine','phone'])
     def test_rejects_bad_requests(self):
         token=self.pair()
         self.assertEqual(self.call('PUT','/upload?mode=nonsense',b'x',token)[0],400)

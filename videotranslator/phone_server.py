@@ -26,6 +26,14 @@ def safe_name(name):
     name=re.sub(r'[\\/:*?"<>|\x00-\x1f]','_',Path(str(name).replace('\\','/')).name).strip(' .')[:80]
     return name if Path(name).suffix.lower() in ('.mp4','.mkv','.mov','.avi','.webm','.m4v') else (name or 'video')+'.mp4'
 
+def local_models():
+    """Translation models installed in Ollama on this PC; none when Ollama is not running."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:11434/api/tags',timeout=3) as reply:found=json.loads(reply.read()).get('models',[])
+    except (OSError,ValueError):return []
+    return sorted(m['name'] for m in found if not m.get('remote_host') and not m.get('remote_model') and 'cloud' not in m['name'].lower())
+
 class PhoneServer:
     def __init__(self,root=ROOT,port=PORT,host='0.0.0.0'):
         self.root=Path(root);self.code=f'{secrets.randbelow(10**6):06d}';self.lock=threading.Lock()
@@ -66,6 +74,8 @@ class PhoneServer:
             if h.headers.get('Authorization','')[7:] not in self.tokens or not h.headers.get('Authorization','').startswith('Bearer '):
                 return self.send(h,401,{'error':'Not paired with this PC. Enter the code shown on the PC.'})
             if (method,path)==('GET','/status'):return self.send(h,200,self.status())
+            if (method,path)==('GET','/options'):
+                return self.send(h,200,{'languages':[{'name':name,'code':code} for name,code in LANGUAGES.items()],'models':local_models(),'model':'gemma4:12b'})
             if (method,path)==('PUT','/upload'):return self.upload(h,query)
             if (method,path)==('GET','/result'):return self.result(h)
             if (method,path)==('POST','/cancel'):self.cancel();return self.send(h,200,self.status())
@@ -88,8 +98,9 @@ class PhoneServer:
 
     def upload(self,h,query):
         size=int(h.headers.get('Content-Length') or 0)
-        mode=query.get('mode','speech');target=query.get('target','ar')
-        if mode not in ('speech','ocr') or target not in LANGUAGES.values() or target=='auto':return self.send(h,400,{'error':'Unknown mode or language'})
+        mode=query.get('mode','speech');target=query.get('target','ar');source=query.get('source','auto');model=query.get('model','')
+        if mode not in ('speech','ocr') or target not in LANGUAGES.values() or target=='auto' or source not in LANGUAGES.values():return self.send(h,400,{'error':'Unknown mode or language'})
+        if not re.fullmatch(r'[\w.:/-]{0,200}',model):return self.send(h,400,{'error':'Unknown translation model'})
         if size<=0:return self.send(h,411,{'error':'Empty upload'})
         # Room for the upload, the working files and the export.
         if shutil.disk_usage(self.root).free<size*3+(1<<30):return self.send(h,507,{'error':'Not enough free disk space on the PC for this video.'})
@@ -109,14 +120,22 @@ class PhoneServer:
         except (ConnectionError,TimeoutError,OSError):
             video.unlink(missing_ok=True);self.set(state='error',message='The upload stopped before the whole video arrived. Send it again.');raise ConnectionError
         self.set(state='working',stage='recognize',progress=0,message='Starting')
-        threading.Thread(target=self.work,args=(video,mode,target),daemon=True).start()
+        threading.Thread(target=self.work,args=(video,mode,target,source,model),daemon=True).start()
         self.send(h,200,self.status())
 
-    def work(self,video,mode,target):
+    def work(self,video,mode,target,source='auto',model=''):
         try:
             from .engine import probe
-            p=new_project(str(video),probe(video));p.update(mode=mode,target=target,appearance='add')
+            # On-screen text needs to know its alphabet; without a chosen language it is read as English.
+            p=new_project(str(video),probe(video));p.update(mode=mode,target=target,source=source,ocr_script='en' if source=='auto' else source,appearance='add')
+            if model:p['model']=model
             project=video.parent/'project.json';save_project(p,project)
+            if mode=='ocr' and p['ocr_script'] not in ('en','ar'):
+                # English and Arabic readers come with the app; any other is downloaded once (setup_models skips what is already there).
+                self.set(message='Getting the text reader for this language')
+                self.proc=subprocess.Popen([sys.executable,str(ROOT/'setup_models.py'),'--ocr',p['ocr_script']],cwd=ROOT,stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL,creationflags=CREATE_NO_WINDOW)
+                if self.proc.wait():raise RuntimeError('The PC could not get the text reader for this language. Check its internet connection and try again.')
             self.proc=subprocess.Popen([sys.executable,'-m','videotranslator.engine','phone',str(project)],cwd=self.root,stdout=subprocess.PIPE,
                                        stderr=subprocess.DEVNULL,text=True,encoding='utf-8',errors='replace',creationflags=CREATE_NO_WINDOW)
             message=''

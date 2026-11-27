@@ -47,7 +47,8 @@ class JobService : Service() {
             }
             else -> {
                 val uri = intent?.data
-                val mode = intent?.getStringExtra("mode") ?: "speech"
+                val choice = Choice(intent?.getStringExtra("mode") ?: "speech", intent?.getStringExtra("source") ?: "auto",
+                    intent?.getStringExtra("target") ?: "ar", intent?.getStringExtra("model") ?: "")
                 val name = intent?.getStringExtra("name") ?: "video.mp4"
                 val size = intent?.getLongExtra("size", -1L) ?: -1L
                 cancelled = false
@@ -55,7 +56,7 @@ class JobService : Service() {
                 job?.cancel()
                 job = scope.launch {
                     try {
-                        run(uri, name, size, mode)
+                        run(uri, name, size, choice)
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -90,7 +91,7 @@ class JobService : Service() {
         }
     }
 
-    private suspend fun run(uri: Uri?, pickedName: String, size: Long, mode: String) {
+    private suspend fun run(uri: Uri?, pickedName: String, size: Long, choice: Choice) {
         val api = Store.api()
         var name = pickedName
         if (uri != null) {
@@ -99,7 +100,7 @@ class JobService : Service() {
             if (api.status().optString("state") in listOf("receiving", "working")) throw ApiException("Your PC is already translating a video. Wait for it to finish, then send this one.")
             show(Stage.Send, 0f, name)
             val input = contentResolver.openInputStream(uri) ?: throw ApiException("This video could not be opened.")
-            input.use { api.upload(name, mode, size, it, { !cancelled }) { sent -> show(Stage.Send, sent.toFloat() / size, name) } }
+            input.use { api.upload(name, choice, size, it, { !cancelled }) { sent -> show(Stage.Send, sent.toFloat() / size, name) } }
         }
         // Wait for the PC. A few missed checks are normal on Wi-Fi; a long silence is an error.
         var misses = 0
@@ -180,11 +181,12 @@ class JobService : Service() {
     companion object {
         const val CANCEL = "cancel"
 
-        fun start(context: Context, picked: Picked?, mode: String) {
+        fun start(context: Context, picked: Picked?, choice: Choice) {
             val intent = Intent(context, JobService::class.java)
             if (picked != null) {
                 intent.setDataAndType(picked.uri, "video/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                intent.putExtra("name", picked.name).putExtra("size", picked.size).putExtra("mode", mode)
+                intent.putExtra("name", picked.name).putExtra("size", picked.size).putExtra("mode", choice.mode)
+                    .putExtra("source", choice.source).putExtra("target", choice.target).putExtra("model", choice.model)
             }
             context.startForegroundService(intent)
         }

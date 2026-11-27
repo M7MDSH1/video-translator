@@ -48,6 +48,13 @@ class Api(private val host: String, private val token: String? = null) {
 
     fun status(): JSONObject = read(open("/status", "GET"))
 
+    fun options(): Options {
+        val json = read(open("/options", "GET"))
+        val languages = json.getJSONArray("languages").let { list -> List(list.length()) { list.getJSONObject(it).run { getString("name") to getString("code") } } }
+        val models = json.optJSONArray("models")?.let { list -> List(list.length()) { list.getString(it) } } ?: emptyList()
+        return Options(languages, models, json.optString("model"))
+    }
+
     fun cancel(): JSONObject {
         val c = open("/cancel", "POST")
         c.doOutput = true
@@ -57,8 +64,9 @@ class Api(private val host: String, private val token: String? = null) {
     }
 
     /** Streams the video to the PC without holding it in memory. [progress] gets the bytes sent so far. */
-    fun upload(name: String, mode: String, size: Long, input: InputStream, keepGoing: () -> Boolean, progress: (Long) -> Unit): JSONObject {
-        val c = open("/upload?name=${URLEncoder.encode(name, "UTF-8")}&mode=$mode", "PUT")
+    fun upload(name: String, choice: Choice, size: Long, input: InputStream, keepGoing: () -> Boolean, progress: (Long) -> Unit): JSONObject {
+        val model = if (choice.model.isBlank()) "" else "&model=" + URLEncoder.encode(choice.model, "UTF-8")
+        val c = open("/upload?name=${URLEncoder.encode(name, "UTF-8")}&mode=${choice.mode}&source=${choice.source}&target=${choice.target}$model", "PUT")
         c.doOutput = true
         c.setFixedLengthStreamingMode(size)
         c.readTimeout = 120000

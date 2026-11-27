@@ -144,11 +144,13 @@ class CueDialog(QDialog):
         self.c.update(start=self.start.value(),end=self.end.value(),original=self.original.toPlainText(),translation=self.translation.toPlainText(),reviewed=self.reviewed.isChecked());self.accept()
 
 class MainWindow(QMainWindow):
+    update_found=Signal(dict)  # from the background check to the window
     def __init__(self):
         super().__init__();self.setWindowTitle('Local Video Translator');self.resize(1440,950)
         self.p=None;self.path=None;self.proc=None;self.buffer='';self._loading=False;self._editing_fields=False
         self.autosave=QTimer(self);self.autosave.setSingleShot(True);self.autosave.setInterval(700);self.autosave.timeout.connect(self.save_live_edits)
         from .workspace_ui import build
+        self.update_info=None;self.update_found.connect(self.show_update)
         build(self)
         self.live_text.textChanged.connect(self.live_text_changed);self.live_start.valueChanged.connect(self.live_timing_changed);self.live_end.valueChanged.connect(self.live_timing_changed)
         self.live_boxes.textChanged.connect(self.live_boxes_input);self.draw_covers.toggled.connect(self.toggle_cover_edit)
@@ -940,6 +942,30 @@ class MainWindow(QMainWindow):
             latest=self.p.get('last_export') if self.p else None
             folder=Path(latest).parent if latest and Path(latest).is_file() else ROOT/'exports'
             folder.mkdir(parents=True,exist_ok=True);os.startfile(str(folder))
+    def look_for_update(self):
+        """Asks GitHub in the background whether a newer version exists. Offline or unsure means silence."""
+        import threading
+        from .updates import check
+        def run():
+            info=check()
+            if info:self.update_found.emit(info)
+        threading.Thread(target=run,daemon=True).start()
+    def show_update(self,info):
+        self.update_info=info
+        for b in self.update_buttons:b.show()
+        self.install_update()
+    def install_update(self):
+        """The popup behind the Update button: Update now or Later. Later keeps the button."""
+        info=self.update_info
+        if not info:return
+        box=QMessageBox(self);box.setWindowTitle('Update available');box.setText('A newer version of Video Translator is ready.')
+        box.setInformativeText((f"What is new: {info['message']}\n\n" if info['message'] else '')+'Updating closes the app, installs the new version and opens it again. Your projects, exports and models are kept.')
+        yes=box.addButton('Update now',QMessageBox.ButtonRole.AcceptRole);box.addButton('Later',QMessageBox.ButtonRole.RejectRole);box.exec()
+        if box.clickedButton() is not yes or not self.idle():return
+        if getattr(self,'phone',None) and self.phone.status()['state'] in ('receiving','working'):return self.error('A video from your phone is being translated. Update when it finishes.')
+        import subprocess
+        subprocess.Popen([str(ROOT/'.venv'/'Scripts'/'python.exe'),'-m','videotranslator.updates',info['sha']],cwd=ROOT,creationflags=subprocess.CREATE_NEW_CONSOLE)
+        self.close()
     def phone_mode(self):
         # The server starts on first use and stays on until the app closes, so the phone keeps working with this window hidden.
         try:
@@ -971,7 +997,7 @@ def create_application(argv):
     return app
 
 def main():
-    app=create_application(sys.argv);window=MainWindow();window.show()
+    app=create_application(sys.argv);window=MainWindow();window.show();window.look_for_update()
     if len(sys.argv)>1:window.load_path(sys.argv[1])
     sys.exit(app.exec())
 

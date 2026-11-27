@@ -1,4 +1,5 @@
 import io,tempfile,unittest
+import numpy  # before the tests swap sys.modules: it cannot be imported twice in one process
 from pathlib import Path
 from types import SimpleNamespace as Obj
 from unittest.mock import patch,MagicMock
@@ -6,9 +7,9 @@ from videotranslator.project import new_project,save_project
 from videotranslator.engine import Worker
 
 class OcrFallbackTests(unittest.TestCase):
-    def run_case(self,preference='auto',fail_at=1,cpu_fails=False):
+    def run_case(self,preference='auto',fail_at=1,cpu_fails=False,empty=(),count=2):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        p=new_project('fixture.mp4',{'width':16,'height':16,'duration':.5,'streams':[]})
+        p=new_project('fixture.mp4',{'width':16,'height':16,'duration':count/4,'streams':[]})
         p.update(mode='ocr',device=preference,roi=[0,0,1,1],sample_interval=.25)
         path=Path(self.temp.name)/'p.json';save_project(p,path);w=Worker(path)
         attempts=[];frames=[];gpu_calls=0
@@ -22,10 +23,10 @@ class OcrFallbackTests(unittest.TestCase):
                     if gpu_calls==fail_at:raise RuntimeError('CUDA first convolution failed')
                 elif cpu_fails:raise RuntimeError('CPU recognition failed')
                 return []
-        proc=MagicMock();proc.stdout=io.BytesIO(bytes([17])*16*16*3+bytes([29])*16*16*3)
+        proc=MagicMock();proc.stdout=io.BytesIO(bytes([17])*16*16*3+bytes([29])*16*16*3*(count-1))
         # Also prove an unusable CUDA context cannot block CPU cleanup/retry.
         torch=Obj(set_num_threads=lambda n:None,cuda=Obj(empty_cache=MagicMock(side_effect=RuntimeError('CUDA cleanup failed'))))
-        with patch.dict('sys.modules',{'easyocr':Obj(Reader=Reader),'torch':torch}),patch('videotranslator.hardware.device_for',return_value='cuda'),patch('videotranslator.engine.subprocess.Popen',return_value=proc):
+        with patch.dict('sys.modules',{'easyocr':Obj(Reader=Reader),'torch':torch}),patch('videotranslator.hardware.device_for',return_value='cuda'),patch('videotranslator.engine.subprocess.Popen',return_value=proc),patch('videotranslator.engine.no_text',side_effect=lambda reader,frame:int(frame[0,0,0]) in empty) as self.gate:
             try:w.scan_ocr();error=None
             except RuntimeError as exc:error=str(exc)
         self.assertTrue(proc.kill.called)
@@ -47,3 +48,11 @@ class OcrFallbackTests(unittest.TestCase):
     def test_cpu_failure_remains_actionable_and_does_not_save_failed_frame(self):
         w,attempts,frames,error=self.run_case(cpu_fails=True)
         self.assertEqual(error,'CPU recognition failed');self.assertEqual(w.p['ocr_samples'],[])
+    def test_frame_without_text_skips_the_full_read_but_keeps_its_sample(self):
+        w,attempts,frames,error=self.run_case(fail_at=0,empty=(17,))
+        self.assertIsNone(error);self.assertEqual(frames,[(True,29)])
+        self.assertEqual([(s['time'],s['text'],s['boxes']) for s in w.p['ocr_samples']],[(0,'',[]),(.25,'',[])])
+        self.assertEqual(w.p['checkpoints']['ocr_cursor'],.5)
+    def test_quick_test_pauses_when_it_rarely_skips(self):
+        w,attempts,frames,error=self.run_case(fail_at=0,count=260)
+        self.assertIsNone(error);self.assertEqual(len(frames),260);self.assertEqual(self.gate.call_count,200)

@@ -38,6 +38,18 @@ def ollama_error(model,body):
                 f'(for example another model server), or choose a smaller model in Setup, then press Resume. Ollama said: {detail}')
     return f'Ollama could not run {model}: {detail}'
 
+TEXT_FLOOR=.5  # the full read reports text only above .7; the margin covers half-precision rounding
+def no_text(reader,frame):
+    """True when the text detector sees nothing here, so the slower full read can be skipped.
+    Same network and pixels as the full read, but in half precision and without its CPU steps."""
+    import torch
+    if max(frame.shape[:2])>2560:return False  # shortcut: the full read shrinks pictures this large first, so nothing is skipped; match that resize if 4K speed matters
+    v=torch.from_numpy(frame.copy()).to(reader.device).permute(2,0,1).float()
+    v=torch.nn.functional.pad(v,(0,-v.shape[2]%32,0,-v.shape[1]%32))  # zeros before normalising, as the library does
+    mean=v.new_tensor([.485,.456,.406]).view(3,1,1)*255;std=v.new_tensor([.229,.224,.225]).view(3,1,1)*255
+    with torch.no_grad(),torch.autocast('cuda'):
+        return float(reader.detector(((v-mean)/std)[None])[0][...,0].max())<=TEXT_FLOOR
+
 class Worker:
     def __init__(self,path):
         self.path=Path(path).resolve(); self.p=load_project(path)
@@ -215,6 +227,7 @@ class Worker:
         # FFmpeg inherits its own log handle; ours closes at once, so errors above cannot leak it.
         with (self.work/'subtitle-decoder.log').open('w') as track_log:
             track_decoder=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=track_log,creationflags=CREATE_NO_WINDOW,cwd=self.work)
+        tested=skipped=rest=0
         try:
             while t<end-.001:
                 self.check()
@@ -228,7 +241,16 @@ class Worker:
                     raise RuntimeError(f'Video decode failed at {t:.2f}s; progress saved. '+(self.work/'subtitle-decoder.log').read_text(errors='replace')[-1500:])
                 frame=np.frombuffer(raw,dtype=np.uint8).reshape((bottom-y,right-x,3))
                 try:
-                    results=reader.readtext(frame,detail=1,paragraph=False,min_size=8,add_margin=0.02,width_ths=.7)
+                    # Most game footage has no subtitle on screen; a quick GPU test answers that for less than a full read.
+                    # It only pays when it skips often, so an area that always holds text (a HUD) pauses it for a while.
+                    empty=False
+                    if rest:rest-=1
+                    elif device=='cuda':
+                        empty=no_text(reader,frame);tested+=1;skipped+=empty
+                        if tested==200:
+                            if skipped<80:rest=2000
+                            tested=skipped=0
+                    results=[] if empty else reader.readtext(frame,detail=1,paragraph=False,min_size=8,add_margin=0.02,width_ths=.7)
                 except (RuntimeError,OSError) as exc:
                     if p.get('device','auto')!='auto' or device!='cuda':raise
                     report(0,f'GPU OCR failed ({exc}); retrying this frame on CPU')

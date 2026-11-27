@@ -42,6 +42,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         Store.init(this)
         if (savedInstanceState == null) shared(intent)
+        lifecycleScope.launch {
+            val mine = packageManager.getPackageInfo(packageName, 0).longVersionCode
+            val update = withContext(Dispatchers.IO) { newerBuild(mine) }
+            if (update != null) Store.state.update { it.copy(update = update) }
+        }
         setContent {
             AppTheme {
                 val state by Store.state.collectAsStateWithLifecycle()
@@ -63,6 +68,8 @@ class MainActivity : ComponentActivity() {
                             is Phase.Done -> DoneScreen(phase, state.picked?.thumb) { Store.state.update { it.copy(phase = Phase.Home, picked = null, error = null) } }
                         }
                     }
+                    // Not while a video is in progress: the question can wait until it is done.
+                    if (state.phase !is Phase.Working) state.update?.let { UpdatePopup(it) }
                 }
             }
         }
@@ -112,13 +119,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun start(mode: String) {
+    private fun start(choice: Choice) {
         val picked = Store.state.value.picked ?: return
+        Store.target = choice.target  // the next video most likely wants the same language and model
+        Store.model = choice.model
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)  // the transfer runs either way; this only shows its progress
         }
         Store.state.update { it.copy(phase = Phase.Working(Stage.Send, 0f, picked.name), error = null) }
-        JobService.start(this, picked, mode)
+        JobService.start(this, picked, choice)
     }
 
     /** After the app was closed mid-job: if the PC is still working or has a finished video we never saved, pick it up again. */
@@ -129,7 +138,7 @@ class MainActivity : ComponentActivity() {
             val state = status.optString("state")
             if (Store.state.value.phase == Phase.Home && (state == "working" || (state == "done" && status.optString("id") != Store.savedJob))) {
                 Store.state.update { it.copy(phase = Phase.Working(if (state == "done") Stage.Download else Stage.Recognise, 0f, status.optString("name"))) }
-                JobService.start(this@MainActivity, null, "speech")
+                JobService.start(this@MainActivity, null, Choice())
             }
         }
     }

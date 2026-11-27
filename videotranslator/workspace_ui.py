@@ -57,13 +57,19 @@ def build(w):
     # Page 0 is the start screen (new or open project); page 1 is the four-step workspace.
     from PySide6.QtWidgets import QStackedWidget
     from .start_screen import StartScreen
+    # One Update button per screen, top right; hidden until a newer version is found.
+    w.update_buttons=[]
+    def update_button():
+        b=button('Update available',w.install_update);b.setProperty('primary',True);b.setToolTip('A newer version of Video Translator is ready. Click to install it.')
+        b.hide();w.update_buttons.append(b);return b
+    w.update_button=update_button
     w.stack=QStackedWidget();w.setCentralWidget(w.stack);w.start=StartScreen(w);w.stack.addWidget(w.start)
     central=QWidget();w.stack.addWidget(central);outer=QVBoxLayout(central)
     outer.setContentsMargins(22,16,22,12);outer.setSpacing(12)
     # The four bands rise in on launch (motion.fade_in), header first.
     head=QWidget();header=QHBoxLayout(head);header.setContentsMargins(0,0,0,0);brand=QLabel();brand.setPixmap(QPixmap(str(ROOT/'assets'/'video-translator.png')).scaled(40,40,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation));header.addWidget(brand)
     header.addWidget(label('Video Translator','title'))
-    header.addStretch();privacy=label('Local AI  /  No uploads  /  Original audio kept','muted');privacy.setWordWrap(False);header.addWidget(privacy);outer.addWidget(head)
+    header.addStretch();privacy=label('Local AI  /  No uploads  /  Original audio kept','muted');privacy.setWordWrap(False);header.addWidget(privacy);header.addWidget(update_button());outer.addWidget(head)
     tools=QWidget();bar=QHBoxLayout(tools);bar.setContentsMargins(0,0,0,0)
     for title,fn in [('Home',w.go_home),('Save project',w.save_from_button)]:bar.addWidget(button(title,fn))
     w.file_label=label('','muted');bar.addWidget(w.file_label,1);outer.addWidget(tools)
