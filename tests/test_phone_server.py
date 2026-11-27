@@ -46,6 +46,8 @@ class PhoneServerTests(unittest.TestCase):
         self.assertEqual(saved[0].read_bytes(),b'video-bytes')
         self.assertEqual(json.loads((saved[0].parent/'project.json').read_text(encoding='utf-8'))['mode'],'ocr')
         whole=self.call('GET','/result',token=token);self.assertEqual((whole[0],whole[1]),(200,result.read_bytes()))
+        # A download names its job, so a retry can never continue with another job's video.
+        self.assertEqual(self.call('GET','/result?id='+job['id'],token=token)[0],200);self.assertEqual(self.call('GET','/result?id=another',token=token)[0],404)
         part=self.call('GET','/result',token=token,headers={'Range':'bytes=5000-'});self.assertEqual((part[0],part[1]),(206,result.read_bytes()[5000:]))
     def test_cancel_stops_the_engine_and_what_it_started(self):
         import subprocess,sys
@@ -76,7 +78,7 @@ class PhoneServerTests(unittest.TestCase):
         token=self.pair();media={'width':1280,'height':720,'duration':5.0,'streams':[]};calls=[]
         with patch.object(phone_server,'local_models',return_value=['gemma4:12b','other:4b']):
             options=json.loads(self.call('GET','/options',token=token)[1])
-        self.assertEqual(options['models'],['gemma4:12b','other:4b']);self.assertIn({'name':'Chinese','code':'zh'},options['languages'])
+        self.assertEqual(options['models'],['auto','gemma4:12b','other:4b']);self.assertIn({'name':'Chinese','code':'zh'},options['languages'])
         def run(args,**kw):
             calls.append(args[1:]);proc=MagicMock();proc.stdout=io.StringIO('');proc.wait.return_value=0;proc.poll.return_value=0;return proc
         with patch.object(phone_server.subprocess,'Popen',side_effect=run),patch('videotranslator.engine.probe',return_value=media):
@@ -87,9 +89,53 @@ class PhoneServerTests(unittest.TestCase):
             self.assertEqual(self.call('PUT','/upload?source=xx',b'video',token)[0],400)
             self.assertEqual(self.call('PUT','/upload?model=bad%20name%3B',b'video',token)[0],400)
         p=load_project(next(self.root.glob('projects/phone-*/project.json')))
-        self.assertEqual((p['mode'],p['source'],p['ocr_script'],p['target'],p['model']),('ocr','zh','zh','en','other:4b'))
+        self.assertEqual((p['mode'],p['source'],p['ocr_script'],p['target'],p['model'],p['appearance']),('ocr','zh','zh','en','other:4b','replace'))
         # A reader the app does not ship is fetched before the engine starts.
         self.assertEqual(calls[0][1:],['--ocr','zh']);self.assertTrue(calls[0][0].endswith('setup_models.py'));self.assertEqual(calls[1][:3],['-m','videotranslator.engine','phone'])
+    def test_cancel_during_upload_never_starts_the_job(self):
+        import socket
+        token=self.pair();started=[]
+        with patch.object(self.server,'work',side_effect=lambda *a:started.append(a)):
+            s=socket.create_connection(('127.0.0.1',self.server.port))
+            s.sendall(f'PUT /upload?name=a.mp4 HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nContent-Length: 2000000\r\n\r\n'.encode()+b'x'*1000000)
+            for _ in range(100):
+                if json.loads(self.call('GET','/status',token=token)[1])['progress']>0:break
+                time.sleep(.02)
+            self.assertEqual(json.loads(self.call('POST','/cancel',token=token)[1])['state'],'error')
+            s.sendall(b'x'*1000000);s.settimeout(5)
+            try:s.recv(100)
+            except OSError:pass
+            s.close();time.sleep(.3)
+        self.assertEqual(started,[]);self.assertEqual(json.loads(self.call('GET','/status',token=token)[1])['state'],'error')
+        self.assertEqual(list(self.root.glob('projects/phone-*/a.mp4')),[])
+    def test_cancel_while_the_video_is_inspected_starts_nothing_and_keeps_the_pc_busy_until_cleanup(self):
+        import threading
+        token=self.pair();media={'width':1280,'height':720,'duration':5.0,'streams':[]};inspecting=threading.Event();release=threading.Event()
+        def probe(video):inspecting.set();release.wait(5);return media
+        with patch.object(phone_server.subprocess,'Popen') as popen,patch('videotranslator.engine.probe',side_effect=probe):
+            self.assertEqual(self.call('PUT','/upload?name=a.mp4',b'video',token)[0],200);self.assertTrue(inspecting.wait(5))
+            self.assertEqual(json.loads(self.call('POST','/cancel',token=token)[1])['message'],'Cancelled.')
+            self.assertEqual(self.call('PUT','/upload?name=b.mp4',b'video',token)[0],409)  # the cancelled job has not finished stopping
+            release.set()
+            for _ in range(100):
+                if not self.server.busy:break
+                time.sleep(.02)
+            popen.assert_not_called();self.assertEqual(json.loads(self.call('GET','/status',token=token)[1])['message'],'Cancelled.')
+            inspecting.clear();release.set()
+            self.assertEqual(self.call('PUT','/upload?name=b.mp4',b'video',token)[0],200)  # free again once it has
+    def test_cancel_between_reader_setup_and_engine_start_starts_no_engine(self):
+        token=self.pair();media={'width':1280,'height':720,'duration':5.0,'streams':[]};calls=[]
+        def run(args,**kw):
+            calls.append(args[1:]);proc=MagicMock();proc.stdout=io.StringIO('');proc.poll.return_value=0
+            proc.wait.side_effect=lambda *a,**k:(self.server.cancel(),0)[1]  # Cancel arrives just as the reader download ends
+            return proc
+        with patch.object(phone_server.subprocess,'Popen',side_effect=run),patch('videotranslator.engine.probe',return_value=media):
+            self.assertEqual(self.call('PUT','/upload?mode=ocr&source=zh',b'video',token)[0],200)
+            for _ in range(100):
+                if not self.server.busy:break
+                time.sleep(.02)
+        self.assertEqual(len(calls),1);self.assertEqual(calls[0][1:],['--ocr','zh'])
+        self.assertEqual(json.loads(self.call('GET','/status',token=token)[1])['message'],'Cancelled.')
     def test_rejects_bad_requests(self):
         token=self.pair()
         self.assertEqual(self.call('PUT','/upload?mode=nonsense',b'x',token)[0],400)

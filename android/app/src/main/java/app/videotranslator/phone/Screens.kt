@@ -281,7 +281,7 @@ fun HomeScreen(state: UiState, onPick: () -> Unit, onStart: (Choice) -> Unit) {
             ChoiceRow("Translate to", target, options.languages.filter { it.second != "auto" }) { target = it }
             if (options.models.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
-                ChoiceRow("Translation model", model, options.models.map { it to it }) { picked = it }
+                ChoiceRow("Translation model", model, options.models.map { (if (it == "auto") "Auto (best for the language)" else it) to it }) { picked = it }
             }
         }
         Spacer(Modifier.height(28.dp))

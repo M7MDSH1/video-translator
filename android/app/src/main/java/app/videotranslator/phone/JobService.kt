@@ -142,7 +142,7 @@ class JobService : Service() {
                 var tries = 0
                 while (true) {
                     try {
-                        api.download(done, out, { !cancelled }) { d, total -> done = d; show(Stage.Download, if (total > 0) d.toFloat() / total else 0f, name) }
+                        api.download(jobId, done, out, { !cancelled }) { d, total -> done = d; show(Stage.Download, if (total > 0) d.toFloat() / total else 0f, name) }
                         break
                     } catch (e: IOException) {
                         if (++tries > 8) throw e  // each retry continues from the bytes already saved

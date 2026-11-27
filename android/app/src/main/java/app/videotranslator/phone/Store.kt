@@ -27,7 +27,7 @@ data class Choice(val mode: String = "speech", val source: String = "auto", val 
 data class Options(val languages: List<Pair<String, String>>, val models: List<String> = emptyList(), val model: String = "") {
     companion object {
         /** Used until the PC answers, and with an older PC app that cannot list its own. */
-        val Default = Options(listOf("Auto" to "auto", "English" to "en", "Arabic" to "ar", "Chinese" to "zh", "Japanese" to "ja", "Korean" to "ko",
+        val Default = Options(listOf("Auto" to "auto", "English" to "en", "Arabic" to "ar", "Chinese" to "zh", "Chinese (Simplified)" to "zh-cn", "Chinese (Traditional)" to "zh-tw", "Japanese" to "ja", "Korean" to "ko",
             "French" to "fr", "Spanish" to "es", "German" to "de", "Italian" to "it", "Portuguese" to "pt", "Russian" to "ru", "Turkish" to "tr",
             "Hindi" to "hi", "Persian" to "fa", "Urdu" to "ur", "Indonesian" to "id"))
     }

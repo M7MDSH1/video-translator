@@ -137,7 +137,7 @@ class Worker:
                 samples=np.frombuffer(wav.readframes(wav.getnframes()),dtype=np.int16).astype(np.float32)/32768.
             # Auto: detect per chunk only until one speech chunk is confident, then keep that
             # language so music/noise chunks are not transcribed as another language.
-            language=cp.get('speech_language') if p['source']=='auto' else p['source']
+            language=cp.get('speech_language') if p['source']=='auto' else p['source'].split('-')[0]  # speech has one Chinese; the script only matters for text
             segments,info=model.transcribe(samples,language=language,beam_size=5,vad_filter=True,word_timestamps=True,condition_on_previous_text=False)
             words=[];estimated=False
             for seg in segments:
@@ -174,6 +174,37 @@ class Worker:
             self.p['ocr_samples']=[]
             cp.pop('ocr_cursor',None);cp.pop('ocr_complete',None);cp['ocr_key']=key;self.save()
 
+    def chinese_script(self,device):
+        """'ch_sim' or 'ch_tra'. People rarely know which one a video uses, and the wrong reader misreads most lines,
+        so both read a few frames from across the video and the surer one is kept."""
+        p=self.p;cp=p['checkpoints']
+        if cp.get('chinese_script'):return cp['chinese_script']
+        choice='ch_sim';compared=False
+        if (ROOT/'models'/'ocr'/'chinese.pth').exists():  # the Traditional weights; without them there is nothing to compare
+            import easyocr,statistics
+            import numpy as np
+            w,h=p['media']['width'],p['media']['height'];rx,ry,rw,rh=p['roi'];x,y=int(rx*w),int(ry*h);cw,ch=min(w,int((rx+rw)*w))-x,min(h,int((ry+rh)*h))-y
+            frames=[]
+            for i in range(40):
+                self.check()
+                at=p['range_start']+(p['range_end']-p['range_start'])*(i+.5)/40
+                raw=subprocess.run(['ffmpeg','-v','error','-nostdin','-ss',str(at),'-i',p['video'],'-frames:v','1','-vf',f'crop={cw}:{ch}:{x}:{y}:exact=1','-pix_fmt','bgr24','-f','rawvideo','pipe:1'],
+                                   stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,creationflags=CREATE_NO_WINDOW).stdout
+                if len(raw)==cw*ch*3:frames.append(np.frombuffer(raw,dtype=np.uint8).reshape((ch,cw,3)))
+            try:
+                scores={}
+                for name in ('ch_sim','ch_tra'):
+                    reader=easyocr.Reader([name,'en'],gpu=(device=='cuda'),model_storage_directory=str(ROOT/'models'/'ocr'),download_enabled=False,verbose=False)
+                    scores[name]=[float(c) for f in frames for _,text,c in reader.readtext(f,detail=1,paragraph=False,min_size=8,add_margin=0.02,width_ths=.7) if text.strip()]
+                    del reader
+                compared=len(scores['ch_tra'])>=5  # fewer boxes than this is no evidence either way
+                if compared and statistics.median(scores['ch_tra'])>statistics.median(scores['ch_sim'] or [0]):choice='ch_tra'
+                report(0,f"Chinese reader check: {len(scores['ch_sim'])} and {len(scores['ch_tra'])} text boxes in {len(frames)} frames")
+            except (RuntimeError,OSError):pass  # the scan itself reports GPU trouble; here Simplified is the fallback
+        report(0,'Chinese subtitles: reading as '+('Traditional' if choice=='ch_tra' else 'Simplified'))
+        if compared:cp['chinese_script']=choice;self.save()  # an undecided check is repeated next time, not remembered as Simplified
+        return choice
+
     def scan_ocr(self):
         self.prepare_ocr()
         import easyocr
@@ -182,10 +213,12 @@ class Worker:
         p=self.p; cp=p['checkpoints']; interval=p['sample_interval']
         if cp.get('ocr_complete'):return
         code=p['ocr_script']; langs=['ar','en'] if code=='auto' else (['en'] if code=='en' else [code,'en'])
-        if code=='zh':langs=['ch_sim','en']
         report(0,'Loading offline OCR; scanning only the selected rectangle')
         from .hardware import device_for
         device=device_for('ocr',p.get('device','auto'))
+        # Plain Chinese lets the app tell the two scripts apart; the named ones are the user's word.
+        if code=='zh':langs=[self.chinese_script(device),'en']
+        elif code in ('zh-cn','zh-tw'):langs=['ch_sim' if code=='zh-cn' else 'ch_tra','en']
         def load(device):
             report(0,f'OCR backend: {device}; sequential video decoding')
             return easyocr.Reader(langs,gpu=(device=='cuda'),model_storage_directory=str(ROOT/'models'/'ocr'),download_enabled=False,verbose=False)
@@ -324,6 +357,11 @@ class Worker:
 
     def translate(self):
         import requests
+        if self.p['model']=='auto':
+            # Decided here, not at setup: only now is the spoken language known. The real name is stored so every later step sees one model.
+            from .models import choose
+            self.p['model'],measured=choose(self.p);self.save()
+            report(0,f"Translation model: {self.p['model']}"+(' (measured best for this language)' if measured else ''))
         session=requests.Session(); session.trust_env=False
         # A loopback Ollama server can itself proxy cloud models. Inspect the
         # model before transmitting any transcript, and require local weights.
@@ -509,7 +547,11 @@ class Worker:
 def probe(path):
     result=subprocess.run(['ffprobe','-v','error','-show_format','-show_streams','-of','json',str(path)],capture_output=True,text=True,encoding='utf-8',creationflags=CREATE_NO_WINDOW,check=True)
     data=json.loads(result.stdout); v=next(s for s in data['streams'] if s['codec_type']=='video')
-    return {'width':v['width'],'height':v['height'],'duration':float(data['format']['duration']),'streams':data['streams']}
+    # Phones store portrait video sideways with a rotation note, and FFmpeg turns it upright when decoding.
+    # The sizes must describe that upright picture, or every crop and position computed from them is off.
+    turn=next((s['rotation'] for s in v.get('side_data_list',[]) if 'rotation' in s),None) or v.get('tags',{}).get('rotate') or 0
+    w,h=(v['height'],v['width']) if round(abs(float(turn)))%180==90 else (v['width'],v['height'])
+    return {'width':w,'height':h,'duration':float(data['format']['duration']),'streams':data['streams']}
 
 def main():
     sys.stdout.reconfigure(encoding='utf-8'); sys.stderr.reconfigure(encoding='utf-8')

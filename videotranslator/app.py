@@ -189,12 +189,17 @@ class MainWindow(QMainWindow):
         if not self.p:return
         if self._undo_for is not self.p:self._undo=[];self._redo=[];self._undo_for=self.p;self._undo_tag=None  # a finished job reloads the project
         if tag is not None and tag==self._undo_tag:return
-        self._undo_tag=tag;self._redo.clear();self._undo.append(copy.deepcopy(self.p['cues']));del self._undo[:-50]
+        self._undo_tag=tag;self._redo.clear();self._undo.append(self.snapshot());del self._undo[:-50]
+    def snapshot(self):
+        """What Ctrl+Z restores: every line, plus the placement and size that apply to all subtitles."""
+        return copy.deepcopy((self.p['cues'],{k:self.p['style'][k] for k in ('caption_offset','caption_scale') if k in self.p['style']}))
     def undo(self,redo=False):
         if not self.p or self.stack.currentIndex()!=1 or not self.idle():return
         source,other=(self._redo,self._undo) if redo else (self._undo,self._redo)
         if self._undo_for is not self.p or not source:self.status.setText('Nothing to redo.' if redo else 'Nothing to undo.');return
-        other.append(copy.deepcopy(self.p['cues']));self.p['cues']=source.pop();self._undo_tag=None
+        other.append(self.snapshot());self.p['cues'],shared=source.pop();self._undo_tag=None
+        for key in ('caption_offset','caption_scale'):self.p['style'].pop(key,None)
+        self.p['style'].update(shared)
         self.refresh();self.autosave.start();self.status.setText('Redone.' if redo else 'Undone. Ctrl+Y brings it back.')
     def review_and_next(self):
         r=self.selected()
@@ -279,8 +284,11 @@ class MainWindow(QMainWindow):
 
     def update_model_status(self):
         names=getattr(self,'_model_names',None)
-        self.ollama_setup.setVisible(names is None or self.model.currentText() not in names)
+        auto=self.model.currentText()=='auto'  # the engine picks an installed model once it knows the language
+        self.ollama_setup.setVisible(names is None or (not names if auto else self.model.currentText() not in names))
         text=('Ollama unavailable · press Set up translation, then Refresh' if names is None else
+              'Ollama running · the best installed model for the language is chosen' if auto and names else
+              'Ollama running · no models installed' if auto else
               f'Ollama running · {self.model.currentText()} '+('installed' if self.model.currentText() in names else 'not installed locally'))
         self.model_status.setText(text)
 
@@ -660,7 +668,7 @@ class MainWindow(QMainWindow):
         owner=self.p['cues'][index] if index>=0 else self.p['style']
         # A click without movement is not an edit: keep approval and reviewed state.
         if all(abs(a-b)<1e-9 for a,b in zip(owner.get('caption_offset',[0,0]),(x,y))):return
-        if index>=0:self.checkpoint(('move',index))
+        self.checkpoint(('move',index))
         owner['caption_offset']=[x,y]
         if index>=0:
             owner['reviewed']=False
@@ -684,7 +692,7 @@ class MainWindow(QMainWindow):
         if not self.p:return
         owner=self.p['cues'][index] if index>=0 else self.p['style']
         if abs(owner.get('caption_scale',1)-scale)<1e-9:return
-        if index>=0:self.checkpoint(('size',index))
+        self.checkpoint(('size',index))
         owner['caption_scale']=scale
         if index>=0:
             owner['reviewed']=False
@@ -840,7 +848,8 @@ class MainWindow(QMainWindow):
     def setup_ollama(self):
         """Installs Ollama, starts it and downloads the chosen model, in a console window so the long download shows its progress."""
         import re,subprocess
-        model=self.model.currentText().strip() or 'gemma4:12b'
+        model=self.model.currentText().strip()
+        if model in ('','auto'):model='gemma4:12b'
         if not re.fullmatch(r'[\w.:/-]+',model):self.status.setText('That model name is not valid. Pick or type a name such as gemma4:12b.');return
         subprocess.Popen(['cmd','/c','powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'install.ps1'),'-OllamaOnly','-Model',model,'&','pause'],creationflags=subprocess.CREATE_NEW_CONSOLE)
         self.status.setText('Setting up translation in a separate window. When it says it is ready, press Refresh.')
@@ -851,7 +860,7 @@ class MainWindow(QMainWindow):
             self._model_names=None;self.update_model_status()
             if not quiet:self.status.setText(f'Could not list Ollama models ({type(e).__name__}). Is Ollama running? You can still type a model name.')
             return
-        self._model_names=names;self.model.blockSignals(True);self.model.clear();self.model.addItems(names);self.model.setCurrentText(current or (names[0] if names else ''));self.model.blockSignals(False);self.update_model_status()
+        self._model_names=names;self.model.blockSignals(True);self.model.clear();self.model.addItems(['auto']+names);self.model.setCurrentText(current or 'auto');self.model.blockSignals(False);self.update_model_status()
         if not quiet:self.status.setText(f'{len(names)} local Ollama models found.' if names else 'Ollama has no local models installed.')
 
     def setup_ocr(self):
@@ -891,6 +900,8 @@ class MainWindow(QMainWindow):
         self.read_output();self.cancel.setEnabled(False);self.tabs.setEnabled(True);self.style_panel.setEnabled(True);self.table.setEnabled(True);self.video.setEnabled(True)
         if self.path and self.path.is_file():
             self.p=load_project(self.path)
+            # The worker turns 'auto' into a real model; show that one, or the next save would write 'auto' back and ask for a retranslation.
+            loading=self._loading;self._loading=True;self.model.setCurrentText(self.p['model']);self._loading=loading
             if code==0 and getattr(self,'job_action',None) in ('process','translate'):
                 from .project import recognition_key
                 self.p['ui_baseline']={'recognition':recognition_key(self.p),'translation':[self.p['model'],self.p['target']]};save_project(self.p,self.path)

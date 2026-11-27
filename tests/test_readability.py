@@ -91,6 +91,10 @@ class NameFirstTests(unittest.TestCase):
         terms={t['term']:t for t in candidate_terms(cues)}
         self.assertTrue(terms['Soul']['speaker'])
         self.assertIn('Four Axes',terms);self.assertFalse(terms['Four Axes']['speaker'])
+    def test_a_sentence_split_over_two_lines_is_not_a_speaker_name(self):
+        cues=[cue(0,1,'I need your help\nright now',[],.9),cue(1,2,'I need your help\nwith this',[],.9),cue(2,3,'Li Wuxiang\nFollow me',[],.9)]
+        terms={t['term']:t for t in candidate_terms(cues)}
+        self.assertNotIn('I need your help',terms);self.assertTrue(terms['Li Wuxiang']['speaker'])
         self.assertNotIn('That',terms)  # sentence start, not a name
 
     def test_names_are_translated_before_dialogue_and_used_in_batches(self):

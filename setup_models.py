@@ -18,7 +18,8 @@ if not args.ocr:
     print(f'Downloading Whisper {args.asr} from Hugging Face',flush=True)
     WhisperModel(args.asr,device='cpu',compute_type='int8',download_root=str(root/'whisper'))
 print('Downloading English/Arabic EasyOCR weights from official GitHub releases',flush=True)
-languages=([['en']] if args.ocr=='en' else [[('ch_sim' if args.ocr=='zh' else args.ocr),'en']]) if args.ocr and args.ocr!='auto' else (['en'],['ar','en'])
+# Chinese gets both readers: the engine picks Simplified or Traditional per video.
+languages=([['en']] if args.ocr=='en' else [['ch_sim','en'],['ch_tra','en']] if args.ocr=='zh' else [[{'zh-cn':'ch_sim','zh-tw':'ch_tra'}.get(args.ocr,args.ocr),'en']]) if args.ocr and args.ocr!='auto' else (['en'],['ar','en'])
 for langs in languages:
     easyocr.Reader(langs,gpu=False,model_storage_directory=str(root/'ocr'),verbose=False)
 print('Offline models ready.',flush=True)

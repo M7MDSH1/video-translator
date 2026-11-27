@@ -56,6 +56,14 @@ class ApplyTests(unittest.TestCase):
             with patch.object(updates,'download') as download,patch.object(updates.subprocess,'run',side_effect=lambda *a,**k:ran.append(a[0])):
                 updates.apply(NEW,root)
             download.assert_not_called();self.assertEqual(ran,[['git','pull','--ff-only','origin','main']])
+    def test_git_update_that_changes_requirements_installs_them(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);(root/'.git').mkdir();(root/'requirements.txt').write_text('old');ran=[]
+            def run(command,**k):
+                ran.append(command[:3])
+                if command[0]=='git':(root/'requirements.txt').write_text('new')
+            with patch.object(updates.subprocess,'run',side_effect=run):updates.apply(NEW,root)
+            self.assertEqual([c[1:3] for c in ran],[['pull','--ff-only'],['-m','pip']])
 
 class WindowTests(unittest.TestCase):
     def test_found_update_shows_button_and_popup_and_later_keeps_the_button(self):
@@ -70,3 +78,65 @@ class WindowTests(unittest.TestCase):
         with patch.object(QMessageBox,'exec',return_value=0),patch.object(QMessageBox,'clickedButton',lambda box:box.buttons()[0]),patch('subprocess.Popen') as run:
             w.update_buttons[0].click()
         self.assertEqual(run.call_args[0][0][1:],['-m','videotranslator.updates',NEW])
+
+class ModelChoiceTests(unittest.TestCase):
+    def test_best_measured_model_wins_and_close_scores_go_to_the_faster_one(self):
+        from videotranslator.models import best_model
+        row=lambda chrf,seconds,bad=0:{'chrf':chrf,'seconds_per_line':seconds,'bad_lines':bad}
+        table={'target':'ar','models':{'small':{'languages':{'zh':row(50,1),'ja':row(40,1),'ru':row(60,1,bad=3)}},
+                                       'big':{'languages':{'zh':row(51.5,6),'ja':row(47,6),'ru':row(55,6)}},
+                                       'gone':{'languages':{'zh':row(90,1)}}}}
+        have=['big','gemma4:12b','small']
+        self.assertEqual(best_model('zh','ar',have,table),('small',True))   # 1.5 points is a tie: faster wins
+        self.assertEqual(best_model('ja','ar',have,table),('big',True))     # 7 points is not
+        self.assertEqual(best_model('ru','ar',have,table),('big',True))     # the higher score left lines untranslated
+        self.assertEqual(best_model('ko','ar',have,table),('gemma4:12b',False))  # not measured: the usual model
+        self.assertEqual(best_model('zh','en',have,table),('gemma4:12b',False))  # measured for another target
+        self.assertEqual(best_model('zh','ar',['other'],{}),('other',False));self.assertEqual(best_model('zh','ar',[],{}),('gemma4:12b',False))
+    def test_scores_for_other_weights_or_an_older_prompt_are_not_trusted(self):
+        import json
+        from videotranslator import models
+        from videotranslator.translation import REVISION
+        row={'chrf':90,'seconds_per_line':1,'bad_lines':0}
+        table={'target':'ar','models':{'big':{'digest':'d1','languages':{'zh':row}}}}
+        self.assertEqual(models.best_model('zh','ar',{'big':'d1','gemma4:12b':'g'},table),('big',True))
+        self.assertEqual(models.best_model('zh','ar',{'big':'d2','gemma4:12b':'g'},table),('gemma4:12b',False))  # same name, new weights
+        with tempfile.TemporaryDirectory() as temp:
+            (Path(temp)/'runtime').mkdir();path=Path(temp)/'runtime'/'model_scores.json'
+            path.write_text(json.dumps(dict(table,revision='older')));self.assertEqual(models.scores(temp),{})
+            path.write_text(json.dumps(dict(table,revision=REVISION)));self.assertEqual(models.scores(temp)['target'],'ar')
+
+class AutoModelWindowTests(unittest.TestCase):
+    def test_auto_model_stays_translated_after_the_job(self):
+        import json
+        from PySide6.QtWidgets import QApplication
+        from videotranslator.app import MainWindow
+        from videotranslator.project import new_project,save_project
+        app=QApplication.instance() or QApplication([]);w=MainWindow();self.addCleanup(w.close)
+        with tempfile.TemporaryDirectory() as temp:
+            p=new_project('unused.mp4',{'width':100,'height':100,'duration':5,'streams':[]})
+            p['cues']=[{'start':0,'end':3,'original':'ball','translation':'x','reviewed':False,'flags':[],'boxes':[],'confidence':1}]
+            path=Path(temp)/'p.json';save_project(p,path);w.p=p;w.path=path;w.load_ui()
+            self.assertEqual(w.model.currentText(),'auto')
+            p['model']='gemma4:12b';save_project(p,path)  # what the worker does when it resolves auto
+            w.job_action='translate'
+            with patch.object(w,'refresh'),patch.object(w,'read_output'),patch.object(w,'end_steps',create=True):w.finished(0,None)
+            self.assertEqual(w.model.currentText(),'gemma4:12b');self.assertEqual(w.pending_work(),(False,False))
+            w.collect();self.assertEqual(w.p['model'],'gemma4:12b');self.assertEqual(w.pending_work(),(False,False))
+    def test_undo_brings_back_placement_and_size_reset_for_all_subtitles(self):
+        from PySide6.QtWidgets import QApplication
+        from videotranslator.app import MainWindow
+        from videotranslator.project import new_project
+        app=QApplication.instance() or QApplication([]);w=MainWindow();self.addCleanup(w.close)
+        p=new_project('unused.mp4',{'width':100,'height':100,'duration':5,'streams':[]})
+        p['cues']=[{'start':0,'end':3,'original':'ball','translation':'x','reviewed':False,'flags':[],'boxes':[],'confidence':1}]
+        p['style'].update(caption_offset=[.1,.2],caption_scale=1.5)
+        with tempfile.TemporaryDirectory() as temp:
+            w.p=p;w.path=Path(temp)/'p.json';w.load_ui();w.stack.setCurrentIndex(1);w.drag_scope.setCurrentIndex(0)
+            with patch.object(w,'edit_changed'),patch.object(w,'refresh'):
+                w.reset_caption_position();w.reset_caption_size()
+                self.assertNotIn('caption_offset',w.p['style']);self.assertNotIn('caption_scale',w.p['style'])
+                w.undo();self.assertEqual(w.p['style'].get('caption_scale'),1.5)
+                w.undo();self.assertEqual(w.p['style'].get('caption_offset'),[.1,.2])
+                w.undo(redo=True);self.assertNotIn('caption_offset',w.p['style'])
+            w.autosave.stop()

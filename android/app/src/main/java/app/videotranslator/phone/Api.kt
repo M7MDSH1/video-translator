@@ -91,12 +91,15 @@ class Api(private val host: String, private val token: String? = null) {
     }
 
     /** Downloads the finished video starting at byte [from], so a dropped transfer continues where it stopped. Returns the total size. */
-    fun download(from: Long, out: OutputStream, keepGoing: () -> Boolean, progress: (done: Long, total: Long) -> Unit): Long {
-        val c = open("/result", "GET")
+    fun download(jobId: String, from: Long, out: OutputStream, keepGoing: () -> Boolean, progress: (done: Long, total: Long) -> Unit): Long {
+        // The job is named so a retry cannot continue with a different video the PC finished in between.
+        val c = open("/result?id=${URLEncoder.encode(jobId, "UTF-8")}", "GET")
         if (from > 0) c.setRequestProperty("Range", "bytes=$from-")
         try {
             val code = c.responseCode
             if (code !in 200..299) return read(c).let { 0L }
+            // Asked to continue from a byte: only an answer that starts exactly there may be appended.
+            if (from > 0 && (code != 206 || c.getHeaderField("Content-Range")?.startsWith("bytes $from-") != true)) throw ApiException("The PC sent the wrong part of the video. Send it again.")
             val total = from + c.contentLengthLong
             var done = from
             c.inputStream.use { input ->

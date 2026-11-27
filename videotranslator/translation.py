@@ -30,7 +30,10 @@ def candidate_terms(cues,limit=150):
     counts=Counter();examples={};speakers=set()
     for c in cues:
         lines=[l.strip() for l in clean_source(c['original']).split('\n') if l.strip()]
-        if len(lines)>1 and len(lines[0].split())<=5 and not re.search(r'[.!?,:;]$',lines[0]):
+        # A name is written with capitals ("Swordsman Captain"); a first line with lowercase words ("I need your help")
+        # is a sentence that continues on the next line, and must be translated, not spelled out.
+        # shortcut: a one-word capitalised first line ("Wait") still passes; tell them apart by repetition if it shows up.
+        if len(lines)>1 and len(lines[0].split())<=5 and not re.search(r'[.!?,:;]$',lines[0]) and not any(word[:1].islower() for word in lines[0].split()):
             speakers.add(lines[0]);counts[lines[0]]+=1;examples.setdefault(lines[0],' '.join(lines[1:]));lines=lines[1:]
         body=' '.join(lines)
         for m in re.finditer(r"\b[A-Z][\w'-]+(?:[ -](?:of |the )?[A-Z][\w'-]+)*",body):

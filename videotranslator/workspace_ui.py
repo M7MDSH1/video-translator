@@ -162,7 +162,7 @@ def build_setup(w):
     w.mode=combo(['Spoken dialogue (audio)','Visible subtitles (OCR)']);form.addRow('Translation source',w.mode)
     w.source=combo(list(LANGUAGES));w.target=combo(list(LANGUAGES)[1:]);w.target.setCurrentText('Arabic')
     form.addRow('Source language',w.source);form.addRow('Translate into',w.target)
-    w.model=QComboBox();w.model.setEditable(True);w.model.setCurrentText('gemma4:12b')
+    w.model=QComboBox();w.model.setEditable(True);w.model.setCurrentText('auto')
     row=QHBoxLayout();row.addWidget(w.model,1);row.addWidget(button('Refresh',w.refresh_models));form.addRow('Translation model',row)
     w.model_status=label('Ollama connection not checked','muted');layout.addWidget(w.model_status)
     w.ollama_setup=button('Set up translation (Ollama)…',w.setup_ollama);w.ollama_setup.hide();layout.addWidget(w.ollama_setup)

@@ -99,7 +99,7 @@ class ReplacementTests(unittest.TestCase):
         from videotranslator.project import new_project,save_project
         from videotranslator.translation import translation_key
         from videotranslator.engine import Worker
-        p=new_project('unused.mp4',{'width':100,'height':100,'duration':5,'streams':[]})
+        p=new_project('unused.mp4',{'width':100,'height':100,'duration':5,'streams':[]});p['model']='gemma4:12b'
         p['cues']=[{'start':0,'end':3,'original':'ball','translation':'وكرةً','reviewed':False,'flags':[]}]
         p['cues'][0]['translation_key']=translation_key(p['cues'][0],p)
         p['replacements']=settings(('كرة',''));apply_replacements(p)

@@ -29,7 +29,7 @@ class PlayerViewTests(unittest.TestCase):
         reply=MagicMock();reply.json.return_value={'models':[{'name':'qwen3:8b'},{'name':'gemma4:12b'},{'name':'gpt-oss:120b-cloud'},{'name':'x:latest','remote_host':'https://ollama.com'}]}
         with patch('requests.get',return_value=reply):self.w.refresh_models()
         names=[self.w.model.itemText(i) for i in range(self.w.model.count())]
-        self.assertEqual(names,['gemma4:12b','qwen3:8b'])
+        self.assertEqual(names,['auto','gemma4:12b','qwen3:8b'])
         self.w.model.setCurrentText('qwen3:8b');self.w.save()
         self.assertEqual(self.w.p['model'],'qwen3:8b')
     def test_project_opens_live_view(self):

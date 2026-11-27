@@ -49,18 +49,19 @@ def check(root=ROOT,fetch=fetch):
 
 def apply(sha,root=ROOT):
     """Brings this copy up to [sha]. Only files that are part of the app are written; projects, exports, models and the Python environment are not in the download."""
-    root=Path(root)
+    root=Path(root);requirements=root/'requirements.txt'
+    before=requirements.read_bytes() if requirements.exists() else b''
     if (root/'.git').exists():
         # A git copy may hold the owner's own changes: let git merge, never overwrite.
-        subprocess.run(['git','pull','--ff-only','origin','main'],cwd=root,check=True);return
-    if sha!='main' and not SHA.fullmatch(sha):raise ValueError('Unknown version')
-    data=download(f'https://github.com/{REPO}/archive/{sha}.zip')
-    before=(root/'requirements.txt').read_bytes() if (root/'requirements.txt').exists() else b''
-    with tempfile.TemporaryDirectory() as temp:
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:archive.extractall(temp)  # whole download unpacked before anything is replaced
-        top=next(Path(temp).iterdir())
-        shutil.copytree(top,root,dirs_exist_ok=True)
-    if (root/'requirements.txt').read_bytes()!=before:
+        subprocess.run(['git','pull','--ff-only','origin','main'],cwd=root,check=True)
+    else:
+        if sha!='main' and not SHA.fullmatch(sha):raise ValueError('Unknown version')
+        data=download(f'https://github.com/{REPO}/archive/{sha}.zip')
+        with tempfile.TemporaryDirectory() as temp:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:archive.extractall(temp)  # whole download unpacked before anything is replaced
+            top=next(Path(temp).iterdir())
+            shutil.copytree(top,root,dirs_exist_ok=True)
+    if requirements.exists() and requirements.read_bytes()!=before:
         subprocess.run([sys.executable,'-m','pip','install','-r',str(root/'requirements.txt')],cwd=root,check=True)
 
 def main():

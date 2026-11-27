@@ -7,12 +7,12 @@ from pathlib import Path
 from .typography import khaam_style
 
 ROOT = Path(__file__).resolve().parent.parent
-LANGUAGES = {'Auto':'auto','English':'en','Arabic':'ar','Chinese':'zh','Japanese':'ja','Korean':'ko','French':'fr','Spanish':'es','German':'de','Italian':'it','Portuguese':'pt','Russian':'ru','Turkish':'tr','Hindi':'hi','Persian':'fa','Urdu':'ur','Indonesian':'id'}
+LANGUAGES = {'Auto':'auto','English':'en','Arabic':'ar','Chinese':'zh','Chinese (Simplified)':'zh-cn','Chinese (Traditional)':'zh-tw','Japanese':'ja','Korean':'ko','French':'fr','Spanish':'es','German':'de','Italian':'it','Portuguese':'pt','Russian':'ru','Turkish':'tr','Hindi':'hi','Persian':'fa','Urdu':'ur','Indonesian':'id'}
 
 def new_project(video, media):
     return {'version':1,'video':str(Path(video).resolve()),'media':media,
             'mode':'speech','source':'auto','target':'ar','ocr_script':'en','asr_model':'turbo','device':'auto',
-            'appearance':'add','original_kind':'track' if any(s.get('codec_type')=='subtitle' for s in media.get('streams',[])) else 'burned','subtitle_track':0,'model':'gemma4:12b',
+            'appearance':'add','original_kind':'track' if any(s.get('codec_type')=='subtitle' for s in media.get('streams',[])) else 'burned','subtitle_track':0,'model':'auto',
             'roi':[.1,.70,.8,.28],'sample_interval':.25,'range_start':0.,'range_end':media['duration'],'process_full_video':True,
             'style':khaam_style({'x':.5,'y':.76,'padding':5}),
             'cues':[],'ocr_samples':[],'checkpoints':{},'preview':None,'approval':None}

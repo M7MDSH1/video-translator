@@ -92,7 +92,7 @@ What to expect:
 - **Same Wi-Fi only.** The phone and the PC must be on the same network, and the PC must stay on with Video Translator open.
 - **No review step.** The video is translated and exported without anyone checking the lines. The project is kept on the PC in `projects/phone-<date>`, so you can open it there, fix lines, and export again.
 - **Phone-sized result.** The export is a 720p MP4 of at most about 1.4 GB per hour, not the full-size file the desktop makes.
-- **Subtitles are added, not replaced.** Replacing burned-in subtitles needs a region set by hand, so it is desktop only.
+- **On-screen subtitles are covered.** In On screen mode the translation is drawn over the original subtitles, hiding them. In Spoken mode it is simply added.
 - **On-screen subtitles need their language.** Left on Auto they are read as English. For a language other than English or Arabic, the PC downloads that language's text reader once.
 - **Plain HTTP on your own network.** The six-digit code keeps other devices on the Wi-Fi from using the PC, but the video is not encrypted in transit. Do not use it on public Wi-Fi.
 
@@ -101,6 +101,12 @@ What to expect:
 When a newer version is on GitHub, the desktop app shows a popup and an **Update available** button at the top right. **Update now** closes the app, installs the new version and opens it again; your projects, exports and models are not touched. **Later** keeps the button. The phone app does the same with its own popup and an **Update** button; it downloads the new APK in the browser.
 
 The check is one anonymous request to GitHub each time an app starts. It names only the version you have. Nothing about you or your videos is sent, and without internet the apps just skip it.
+
+## Automatic model and Chinese script
+
+The translation model is `auto` unless you pick one. To let `auto` choose by measurement, run `tools\rank_models.py` once with the FLORES-200 test set (see the top of that file): it translates the same lines from each language with every installed Ollama model, scores them against human translations and saves the result in `runtime\model_scores.json`. The app then uses the best-scoring model for the video's language; scores within 2 points count as a tie and go to the faster model. Without that file, or for a language it did not measure, `gemma4:12b` is used when installed.
+
+For on-screen Chinese subtitles, choose **Chinese** and the app reads a few frames with both the Simplified and the Traditional reader and keeps the one that is surer. If you know the script, choose **Chinese (Simplified)** or **Chinese (Traditional)** and that reader is used without checking. Either can also be the language to translate to.
 
 ## Review shortcuts, faster export, and model comparison
 
